@@ -1,0 +1,21 @@
+{
+  "name": "Golden Sun - Rojo Connection Test",
+  "serveAddress": "127.0.0.1",
+  "servePort": 34872,
+  "servePlaceIds": [78369564991843],
+  "tree": {
+    "$className": "DataModel",
+    "$ignoreUnknownInstances": true,
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "$ignoreUnknownInstances": true,
+      "GoldenSunSyncTest": {
+        "$className": "Folder",
+        "$ignoreUnknownInstances": true,
+        "ConnectionTest": {
+          "$path": "src/server/ConnectionTest.server.luau"
+        }
+      }
+    }
+  }
+}
