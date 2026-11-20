@@ -6,9 +6,12 @@
 --   Sim      pure game state, one Sim:step() == one original onStep (30 Hz)
 --   Session  view + input + fixed-step loop, created by TakeFlight.new(context)
 --
--- Adapter interface (pending docs/arcade-contract.md):
---   TakeFlight.new(context) -> session ; session:start() ; session:destroy() (idempotent)
---   context.container : GuiObject ; context.requestExit : (reason: string?) -> ()
+-- Adapter interface: docs/arcade-contract.md v1
+--   Game.new(ctx) -> session (inert) ; session:start() ; session:destroy() (idempotent)
+--   ctx.root : Frame         game viewport owned by the runtime; we letterbox a 400x400 playfield inside
+--   ctx.onCleanup(fn)        runtime-run cleanup (reverse order)
+--   ctx.isActive() -> bool   false once the runtime has stopped this generation
+--   ctx.requestExit()        ask the launcher to return to the menu
 
 local TakeFlight = {}
 
@@ -853,8 +856,10 @@ local STAT_ICON_TEXT = { "Shield\nIcon", "Bullet\nIcon", "Flying\nPlane\nIcon", 
 
 function TakeFlight.new(context: any)
 	assert(type(context) == "table", "TakeFlight.new: context table required")
-	assert(typeof(context.container) == "Instance", "TakeFlight.new: context.container required")
-	assert(type(context.requestExit) == "function", "TakeFlight.new: context.requestExit required")
+	assert(typeof(context.root) == "Instance", "TakeFlight.new: ctx.root required")
+	assert(type(context.requestExit) == "function", "TakeFlight.new: ctx.requestExit required")
+	assert(type(context.onCleanup) == "function", "TakeFlight.new: ctx.onCleanup required")
+	assert(type(context.isActive) == "function", "TakeFlight.new: ctx.isActive required")
 	local self = setmetatable({}, Session)
 	self.context = context
 	self.conns = {}
@@ -875,6 +880,9 @@ function Session:start()
 		return
 	end
 	self.started = true
+	self.context.onCleanup(function()
+		self:destroy()
+	end)
 	local gamesFolder = script.Parent
 	local arcadeFolder = gamesFolder and gamesFolder.Parent
 	local ui = arcadeFolder and arcadeFolder:FindFirstChild("ui")
@@ -883,14 +891,11 @@ function Session:start()
 	self.GameChrome = require(ui:WaitForChild("GameChrome"))
 	self.CodesDialog = require(ui:WaitForChild("CodesDialog"))
 
-	self.chrome = self.GameChrome.new(self.context.container, {
+	self.chrome = self.GameChrome.new(self.context.root, {
 		title = TakeFlight.displayName,
 		controls = TakeFlight.controls,
 		onCodes = function()
 			self:_openCodes("any")
-		end,
-		onExit = function()
-			self.context.requestExit("player")
 		end,
 	})
 	self.field = self.PlayField.new(self.chrome.playArea, self.PlayField.colors.skyBlue)
@@ -917,8 +922,8 @@ function Session:start()
 		end
 	end))
 	local acc = 0
-	self:_conn(RunService.RenderStepped:Connect(function(dt)
-		if self.phase ~= "running" or not self.sim then
+	self:_conn(RunService.Heartbeat:Connect(function(dt)
+		if self.phase ~= "running" or not self.sim or not self.context.isActive() then
 			acc = 0
 			return
 		end
@@ -939,7 +944,7 @@ function Session:_keysBlocked(): boolean
 end
 
 function Session:_onInputBegan(input: InputObject, processed: boolean)
-	if processed or self.phase ~= "running" or self:_keysBlocked() then
+	if processed or self.phase ~= "running" or self:_keysBlocked() or not self.context.isActive() then
 		return
 	end
 	local t = input.UserInputType
@@ -948,6 +953,15 @@ function Session:_onInputBegan(input: InputObject, processed: boolean)
 		local x, y = self.PlayField.toLogical(self.field, Vector2.new(input.Position.X, input.Position.Y))
 		if x >= 0 and x <= 400 and y >= 0 and y <= 400 then
 			self.sim:fire()
+		end
+	end
+end
+
+-- Contract: clear held input whenever focus/modal state changes.
+function Session:_releaseHeld()
+	if self.sim then
+		for _, k in { "w", "s", "a", "d" } do
+			self.sim:keyRelease(k)
 		end
 	end
 end
@@ -1012,8 +1026,10 @@ function Session:_openCodes(route: string)
 	local resumePhase = self.phase
 	self.phase = "prompt" -- the original getTextInput blocks, pausing the game
 	local stage = "code"
+	self:_releaseHeld()
 	local function finish()
 		self.dialog = nil
+		self:_releaseHeld()
 		if self.phase == "prompt" then
 			self.phase = resumePhase
 		end
@@ -1138,7 +1154,7 @@ function Session:_showResult()
 		end
 	end))
 	self:_conn(menu.Activated:Connect(function()
-		self.context.requestExit("player")
+		self.context.requestExit()
 	end))
 	self.chrome:setStatus("Flight over.")
 end

@@ -1,7 +1,7 @@
 --!strict
 -- GameChrome: the in-game frame shared by every arcade game.
--- Top bar with the game title, a Controls toggle, a Codes button and a
--- reliable "Menu" (exit) button; the area below is the game's play area.
+-- Top bar with the game title, a Controls toggle and a Codes button (plus an
+-- optional Menu button; under contract v1 the launcher draws Back instead).
 -- Owner: Claude.
 
 local GameChrome = {}
@@ -13,7 +13,7 @@ export type Options = {
 	title: string,
 	controls: { string },
 	onCodes: (() -> ())?,
-	onExit: () -> (),
+	onExit: (() -> ())?, -- omit when the launcher draws its own Back action (contract v1)
 }
 
 export type Chrome = typeof(setmetatable(
@@ -111,7 +111,10 @@ function GameChrome.new(container: GuiObject, opts: Options): Chrome
 	if opts.onCodes then
 		codesBtn = barButton(buttons, "Codes", 2, Color3.fromRGB(110, 80, 20))
 	end
-	local exitBtn = barButton(buttons, "Menu", 3, Color3.fromRGB(140, 40, 40))
+	local exitBtn: TextButton? = nil
+	if opts.onExit then
+		exitBtn = barButton(buttons, "Menu", 3, Color3.fromRGB(140, 40, 40))
+	end
 
 	local playArea = Instance.new("Frame")
 	playArea.Name = "PlayArea"
@@ -183,14 +186,17 @@ function GameChrome.new(container: GuiObject, opts: Options): Chrome
 			onCodes()
 		end))
 	end
-	table.insert(self._conns, exitBtn.Activated:Connect(function()
-		-- Debounced: one exit request per session.
-		if self._exiting or self._destroyed then
-			return
-		end
-		self._exiting = true
-		opts.onExit()
-	end))
+	if exitBtn and opts.onExit then
+		local onExit = opts.onExit
+		table.insert(self._conns, exitBtn.Activated:Connect(function()
+			-- Debounced: one exit request per session.
+			if self._exiting or self._destroyed then
+				return
+			end
+			self._exiting = true
+			onExit()
+		end))
+	end
 
 	root.Parent = container
 	return self

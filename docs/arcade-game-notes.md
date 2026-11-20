@@ -6,55 +6,29 @@ The originals (`APCreateTask.py`, `TakeFlight.py`) are unchanged. All adaptation
 
 | Path | Purpose |
 | --- | --- |
-| `src/client/arcade/ui/ArcadeMenu.luau` | Selection screen: title, game cards, Play buttons, loading/error overlay, debounce |
-| `src/client/arcade/ui/GameChrome.luau` | In-game top bar: title, Controls panel, Codes button, Menu (exit) button |
+| `src/client/arcade/ui/Menu.luau` | Selection screen per contract v1: `Menu.mount(parent, entries, onPlay) -> unmount` |
+| `src/client/arcade/ui/GameChrome.luau` | In-game top bar inside `ctx.root`: title, Controls panel, Codes button (the launcher draws Back) |
 | `src/client/arcade/ui/CodesDialog.luau` | Shared modal code entry: confirm/cancel, Enter submits, inline validation feedback |
 | `src/client/arcade/ui/PlayField.luau` | Aspect-locked 400×400 logical canvas, cmu colour table, helpers |
 | `src/client/arcade/games/DarkMoon.luau` | Dark Moon port (`Sim` + session adapter) |
 | `src/client/arcade/games/TakeFlight.luau` | Take Flight! port (`Sim` + session adapter) |
 
-## Interface I need from Codex (relay)
+## Contract v1 (docs/arcade-contract.md @ 7ffcf9c): agreed
 
-`docs/arcade-contract.md` did not exist when this work started, so the adapters assume the smallest interface below. Please confirm it or send changes through Complex.
+Implemented as written:
+- `Menu.mount(parent, entries, onPlay) -> unmount`. It takes Registry entries (`id`, `displayName`, `description`, `controls` string, `supportedDevices`, `adapterName`). Unmount is idempotent. Play has a 0.75 s click debounce; the launcher still owns transitions, errors and Back.
+- `DarkMoon.new(ctx)` and `TakeFlight.new(ctx)` are inert. `start()` registers `ctx.onCleanup(destroy)` first, then builds UI under `ctx.root`. `destroy()` is idempotent and safe after a partial start.
+- `ctx.isActive()` gates the Heartbeat fixed-step loop and input. `ctx.requestExit()` is called from the result screen's Back to menu button.
+- No side effects at require time.
 
-```lua
--- Each game module returns a table:
-Game.id, Game.displayName, Game.description  -- strings
-Game.controls  -- { string }
-Game.devices   -- { string }
-Game.new(context) -> session
-session:start()     -- builds UI under context.container; may error (runtime should pcall)
-session:destroy()   -- idempotent, safe after a partial or failed start
-
-context = {
-  container = <GuiObject>,               -- full-screen Frame owned by the runtime; the game only parents inside it
-  requestExit = function(reason: string?) -- game asks the launcher to end the session (Menu button / result screen)
-}
-```
-
-The adapters own and clean up their own connections, the RenderStepped loop, dialogs and UI. They do not need a scope or cleanup object from the context. If the contract provides one, it can be added without changing behaviour.
-
-The launcher (Codex) owns:
-- creating the container
-- calling `start` inside `pcall`
-- on error: calling `destroy`, removing the container and calling `menu:setState("error", msg)`
-- on `requestExit`: calling `destroy`, removing the container and calling `menu:setState("menu")`
-
-Adapters never launch each other.
-
-Menu API for the runtime:
-
-```lua
-local menu = ArcadeMenu.new(screenGuiOrFrame, { {id, displayName, description, controls, devices}, ... }, {
-  onPlay = function(id) ... end, -- called once per click; errors are caught and shown as "error"
-})
-menu:setState("menu" | "loading" | "playing" | "stopping" | "error", message?)
-menu:getState() ; menu:destroy()
-```
-
-A Play click is ignored unless the state is `menu`. The menu switches to `loading` before calling `onPlay`, so repeated clicks cannot launch overlapping sessions. `CodesDialog` is generic, and Number King can use it for `its me` / `complex` if Codex wants that.
-
-Rojo mapping needed (Codex owns `default.project.json`): `src/client/arcade` must sync as a client-side folder. `ui/` and `games/` must be siblings inside it. The games locate `ui/` through `script.Parent.Parent.ui`.
+Clarifications on points the contract leaves open (no signature changes):
+1. **Sibling requires.** Adapters require `GoldenSunArcade.ui.PlayField`, `GoldenSunArcade.ui.CodesDialog` and `GoldenSunArcade.ui.GameChrome` through `script.Parent.Parent.ui`. The whole `src/client/arcade/ui/` folder needs mapping, not only `Menu.luau`.
+2. **`ctx.root` size.** Any size or aspect ratio works, ideally the full area below the launcher's Back bar. Each adapter letterboxes its own 400×400 logical playfield (`PlayField`, a `UIAspectRatioConstraint`) and draws a 44 px Controls and Codes bar at the top of `ctx.root`.
+3. **Input API.** `UserInputService`. Input is ignored when `gameProcessed` is set, while a TextBox is focused, while a Codes dialog is open, or when `isActive()` is false. Take Flight! releases held W/A/S/D when a dialog opens or closes. Confirming a dialog uses GUI buttons or Enter in a TextBox, both of which are `gameProcessed`, so no shot fires.
+4. **Registry text.** Codex owns the Registry; suggested `controls` strings:
+   - Dark Moon: `A/D move · Space jump · S fall faster · W dash · Codes before the run`
+   - Take Flight!: `W/S climb/dive · A/D speed · Click fire · bottom tab: stats · Codes`
+   - Devices: Dark Moon `{"Keyboard"}`; Take Flight! `{"Keyboard", "Mouse"}`.
 
 ## Intake: Dark Moon (`APCreateTask.py`)
 
@@ -164,6 +138,8 @@ All tests ran in Roblox Studio on Complex's machine, in **Edit mode, via the Stu
 
 **Compilation:** all 6 modules compile in Studio's Luau.
 
+**Contract v1 update (23:1x):** `Menu.luau` compiles in Studio. Mount gives 3 cards; unmount empties the parent; a second unmount is safe. The changed adapter code (ctx fields, `onCleanup`, Heartbeat with `isActive`, held-key release) compiles. The full smoke test below ran on the pre-contract `container` interface and has not been re-run with the v1 `ctx`. Codex's integration run covers that.
+
 **UI and lifecycle smoke test** (stand-in launcher in CoreGui, Edit mode):
 - The menu shows 3 cards: Number King (stand-in card), Dark Moon and Take Flight! (screenshot checked).
 - Dark Moon runs at the original pace (89 steps in 3 s). The screenshot shows the gradient, obstacles and the death fade.
@@ -172,6 +148,7 @@ All tests ran in Roblox Studio on Complex's machine, in **Edit mode, via the Stu
 - A forced startup failure (missing `ui` folder) makes `start` error, `destroy` afterwards is safe, the menu shows the error with Back to menu, and returns to `menu`.
 
 **Not yet tested (needs integration or a human):**
+- the full lifecycle with Codex's real runtime and `ctx`
 - real keyboard play in a Play-mode session
 - clicking Play twice quickly through the real button. This is only checked by reading the code.
 - a full real-time 7:33 Dark Moon run
@@ -183,5 +160,6 @@ All tests ran in Roblox Studio on Complex's machine, in **Edit mode, via the Stu
 ## Efficiency notes
 
 - 22:01: task received. 22:24: both ports and the UI were written and tested headlessly, about 23 minutes after reading the uploads.
-- Human coordination so far: one folder-access approval and two computer-use approvals. There have been no interface revisions yet, because the contract is still pending.
+- Human coordination: one folder-access approval, three computer-use approvals and one relayed contract.
+- Interface revisions: one. The adapters were moved from `container` to `ctx` v1 and `ArcadeMenu` was replaced by `Menu.mount`. It took about 10 minutes and changed no game logic.
 - No model usage or cost figures are exposed to me.
