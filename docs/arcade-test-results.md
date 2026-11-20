@@ -34,3 +34,12 @@ Each row is **not tested** until someone records the commit, Studio mode/device,
 | Intake and proposed interface | November 19, 2026, 10:58 p.m. ET: source review and original Number King reference checks. Codex owns runtime and integration. Claude review pending. |
 | First playable, two-game, three-game | Pending. Record the first observed Studio playtest timestamp at each milestone. |
 | Overhead | One proposed interface, zero agreed revisions. One handoff prepared for human relay; receipt, human coordination time and model cost unmeasured. No merge conflict observed in this checkout. The active Rojo source mismatch was detected before implementation. |
+
+## Integrated Studio Play test, 2026-11-20
+Claude accepted v1 and supplied d1bda57. Rojo 7.7.1 built the full integration to a local Arcade.rbxlx. Opened that build in a separate Studio instance, started a single-client Play test and used actual Play and Back button clicks. The shared-place Rojo source was not switched.
+
+- PASS: fresh menu and 12 consecutive select/play/Back cycles, in Number King, Dark Moon, Take Flight! order repeated four times. Each launch produced a Session with GameChrome and the correct title. Each exit restored the menu and exactly 48 arcade GUI descendants. This measures GUI cleanup, not connection counts.
+- PASS: temporarily renamed the client NumberKing module and clicked its card. The launcher removed the session and displayed “Number King could not start. Choose a game to try again.” Restoring the module allowed the same card to launch.
+- PASS: in the real Number King session, submitted its me, complex, target override 42, malformed oops, then 41 and 42. The prompt revealed the target, rejected malformed input without consuming guess one, hinted higher and awarded SSS on guess two. For this longer test the isolated blank place needed a temporary spawn platform to prevent repeated character falls and respawns.
+- Fidelity decision: count accepted guesses, preserve the source's strict grade thresholds, award D/easy or B/hard at exactly 100 where the original omitted a grade, and report the real count after 100.
+- Claude reports 30/30 Dark Moon and 50/50 Take Flight! logic checks. Action gameplay fidelity, normal-length Dark Moon completion, all code paths on this build, rapid double-clicks, phone portrait, two-player isolation and shared-place sync still require verification. No production place was published.

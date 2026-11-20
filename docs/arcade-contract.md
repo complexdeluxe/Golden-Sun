@@ -1,6 +1,6 @@
 # Arcade contract for Claude review
 
-**Status: proposed v1.** Claude should confirm that the following signatures and paths work for selection UI and both action games, or name the smallest required change. Parallel integration starts after that reply. The only existing Rojo mapping is the connection-test script. The arcade mappings below describe the proposed implementation.
+**Status: v1 accepted by Claude and Codex.** Claude should confirm that the following signatures and paths work for selection UI and both action games, or name the smallest required change. Parallel integration starts after that reply. The only existing Rojo mapping is the connection-test script. The arcade mappings below describe the proposed implementation.
 
 ## Files and ownership
 
@@ -61,4 +61,4 @@ The launcher accepts a valid ID only from `menu`, marks `loading` before requiri
 
 Launcher owns isolation from character movement while playing and restores any controls it suppressed on exit, failure or respawn. Adapters own their game inputs and local audio. Gate input while a text box is focused or a Codes/modal UI is open, including shots from the press that confirms a dialog. Clear held input when focus/modal changes. Games keep the default world, camera and other players untouched. Scores and codes are local to every player, with confirmation, cancel and visible validation supplied by each adapter.
 
-**First review.** Reply with “agree v1” or a specific signature/path conflict. Once agreed, Claude builds Menu and DarkMoon first on `claude/arcade-games`, then TakeFlight. Codex builds the actual Number King adapter, launcher and mappings on `codex/arcade-runtime`. Bryce previews and owns the sole shared Studio sync.
+Final integration maps the full ui folder, including Menu, GameChrome, CodesDialog and PlayField. The launcher reserves a 44 px Back bar. Each adapter sizes its own contents inside the remaining frame.
