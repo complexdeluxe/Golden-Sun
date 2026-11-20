@@ -3,7 +3,6 @@ local player = Players.LocalPlayer
 local scripts = script.Parent.Parent
 local entries = require(game.ReplicatedStorage:WaitForChild("GoldenSunArcade"):WaitForChild("Registry"))
 local menu = require(scripts.ui.Menu)
-local controls = require(player.PlayerScripts:WaitForChild("PlayerModule")):GetControls()
 local gui = Instance.new("ScreenGui")
 gui.Name = "GoldenSunArcade"
 gui.ResetOnSpawn = false
@@ -73,9 +72,20 @@ launch = function(id)
         if active() then table.insert(run.cleanups, fn) else safely(fn) end
     end
     local ok, err = pcall(function()
-        if controls.controlsEnabled ~= false then
-            ctx.onCleanup(function() controls:Enable() end)
-            controls:Disable()
+        local character = player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            local speed = humanoid.WalkSpeed
+            local jumpProperty = humanoid.UseJumpPower and "JumpPower" or "JumpHeight"
+            local jump = humanoid[jumpProperty]
+            ctx.onCleanup(function()
+                if humanoid.Parent then
+                    if humanoid.WalkSpeed == 0 then humanoid.WalkSpeed = speed end
+                    if humanoid[jumpProperty] == 0 then humanoid[jumpProperty] = jump end
+                end
+            end)
+            humanoid.WalkSpeed = 0
+            humanoid[jumpProperty] = 0
         end
         local adapter = require(assert(scripts.games:FindFirstChild(entry.adapterName), "Missing game module"))
         if not active() then return end
