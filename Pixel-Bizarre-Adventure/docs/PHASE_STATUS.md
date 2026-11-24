@@ -1,14 +1,14 @@
 # Phase status
 
-**Active phase** — Phase 2 (Contract Freeze), Black Sabbath intent and parity sandbox.
+**Active phase** — Phase 2B, Black Sabbath intent and parity sandbox.
 
 **Base** — Phase 1 integration merged via PR #7. Claude’s client playtest polish merged via PR #8. The real Roblox DataStore restart check remains open as a separate follow-up.
 
 | Ticket | Scope | Status |
 | --- | --- | --- |
-| 2A | Sandbox data shapes, remote names, asset keys, and HUD review | Draft for Claude |
-| 2B | Audited combat math and server sandbox | After contract merge |
-| 2B client | Combat HUD v2 | After contract merge |
+| 2A | Sandbox data shapes, remote names, asset keys, and HUD review | Merged in PR #9 |
+| 2B | Audited combat math and server sandbox | Verified locally with the Phase 2 HUD |
+| 2B client | Combat HUD v2 | PR #10 at `68ff68b` verified against the real server in a local Studio place |
 
 ## Section 2 HUD review
 
@@ -31,7 +31,7 @@ Format the UV Flash tooltip in the client as “Guaranteed Shadow Cancel Only. D
 
 ## Sandbox wire protocol
 
-Stage 2B will create `ReplicatedStorage.Shared.BlackSabbathRemotes`. The existing tutorial remote folder and Build 1 payloads continue to serve the tutorial.
+Stage 2B creates `ReplicatedStorage.Shared.BlackSabbathRemotes`. The existing tutorial remote folder and Build 1 payloads continue to serve the tutorial.
 
 1. Invoke `StartSandbox` with fixture level 10 or 50, stage tag and QTE preference. A successful call returns the full battle snapshot.
 2. Send the battle ID and the snapshot revision for Primary, Secondary and QTE preference changes. Include the acting fighter and any required target in the request. The server validates this against the player’s battle and current action slots.
@@ -43,8 +43,12 @@ Asset manifest entries set to `rbxassetid://0` use local fallback visuals. The s
 
 ## Verification
 
-From `Pixel-Bizarre-Adventure/`, run `rojo build default.project.json --output "$env:TEMP/PBA-Phase2-Contract.rbxlx"`, `lune run tests/smoke.luau`, `lune run tests/tutorial.luau`, and `lune run tests/phase2_contracts.luau`. Run strict Luau analysis on shared modules and tests.
+From `Pixel-Bizarre-Adventure/`, run `rojo build default.project.json --output "$env:TEMP/PBA-Phase2.rbxlx"`, `lune run tests/smoke.luau`, `lune run tests/tutorial.luau`, `lune run tests/phase2_contracts.luau`, and `lune run tests/phase2_sandbox.luau`. Run strict Luau analysis on shared modules and tests.
 
-Verified with Rojo 7.7.1, Lune 0.11.1, and luau-analyze 0.748. The Rojo build, original smoke test, seven tutorial scenarios, Phase 2 contract smoke test, and strict analysis all passed.
+Verified with Rojo 7.7.1, Lune 0.11.1, and luau-analyze 0.748. The combined Rojo build, original smoke test, seven tutorial scenarios, Phase 2 contract smoke, sandbox parity suite, and strict analysis of the shared sandbox code and tests passed. The server bootstrap and all 11 client sources also compiled.
 
-The client review addendum adds QTE progress, End Turn, and the Fade status. Claude checks the revised draft against Section 2 of the Phase 2 handoff. Bryce merges the reviewed contracts before client and server implementation branches start.
+A local Studio build with PR #10 booted into the real Night sandbox. The HUD showed 82/82 player HP with its mock badge hidden and rendered the result of three expired manual checks. Separate client calls verified the server's timeout events, Coffee Gum, End Turn, UV cancel without Exposure, and a landed 3/3 Untimed Cue for +15 Resolve. The Studio output reported asset-load warnings for placeholder content.
+
+### Fixture tuning
+
+The sandbox uses fixed Speed values (12, 10, 8), a 25% low-HP threshold, a 2× Finisher and a 0.45-second base manual timing window with Focus scaling. These are playtest parameters. Untimed checks ask for the indicated input. Companion tactics record the current selection while both party fighters use manually selected actions. The current encounter has no Bonus Primary source. The mock's extra action on a perfect check is excluded from the server.
