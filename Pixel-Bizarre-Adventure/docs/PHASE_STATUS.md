@@ -1,43 +1,38 @@
 # Phase status
 
-**Active phase** — Phase 0, project scaffold and base contracts.
-**Contract status** — Draft for Claude’s client review. Bryce owns the merge to `main`.
+**Active phase** — Phase 1, Raining Carriage Crash tutorial.
+
+**Frozen contracts** — Phase 0 merged via GitHub PR #3 at `b842e31`, including Claude’s sprite key and individual defeat event.
 
 | Ticket | Scope | Status |
 | --- | --- | --- |
-| 0.1 | Isolated Rojo project, tool versions, ownership notes, Lune smoke test | Ready for review |
-| 0.2 | Combat, save, tutorial remote and asset contracts | Awaiting Claude’s sign-off |
-| Exit gate | Review and merge the verified Phase 0 contracts | Awaiting Bryce |
+| 1.1 | Headless tutorial combat and acceptance tests | Verified in the integrated local build |
+| 1.2 | Tutorial remotes and profile persistence | Verified in the integrated local build |
+| 1.3 | Battle UI, feedback, retry and origin selector | Integrated from Claude PR #6 |
+| 1.4 | Integrated Studio playtest and persistent-save check | Local UI and real remotes pass. Roblox DataStore restart check pending. |
 
-## Build and smoke test
+## Client handoff
 
-Run these commands from `Pixel-Bizarre-Adventure/` with the pinned tools installed from `rokit.toml`.
+Use the four frozen functions under `ReplicatedStorage.Shared.TutorialRemotes`. Invoke `StartTutorial` with an empty table, show the returned snapshot, and send the current battle ID and revision with each action. Each successful response gives the next input snapshot and the entire ordered log. Use its latest events to show actions and replace the transcript when resyncing. Guard applies to the enemy actions resolved in that response.
 
-```powershell
-rojo build default.project.json --output "$env:TEMP/PBA-Phase0.rbxlx"
-lune run tests/smoke.luau
-```
+A victory or defeat has empty actions and intents. Retreat thresholds end this encounter immediately. The lower-HP enemy emits `Flee` if still above zero. A knockout emits `Defeated`. Opening a completed tutorial returns Victory and the saved profile. If its origin is still empty, offer `ChooseOrigin`. A successfully selected origin is durable and its identical submission can be retried safely. Both origin options use the frozen Phase 0 IDs.
 
-The Studio project assigns shared code to `ReplicatedStorage.Shared`, server code to `ServerScriptService.Server`, and the client folder to `StarterPlayer.StarterPlayerScripts.Client`. Missing server and client directories are supported during Phase 0. For a local Studio preview, open the built place or serve the Pixel project on `127.0.0.1:34873` with its own test place. The root project’s existing Rojo port is separate.
+Asset manifest IDs are placeholders. Use the actor’s optional sprite key and local fallback visuals when the mapped ID is `rbxassetid://0`.
 
-Verified on the Phase 0 review branch with Rojo 7.7.1, Lune 0.11.1 and luau-analyze 0.748.
+## Build and test
 
-- Rojo produced a place with the four contract modules and the three expected service mappings.
-- The Lune smoke test loaded the contracts and checked a sample combat response, four remote names and five asset entries.
-- Strict analysis passed on all four contract modules and the smoke test.
+From `Pixel-Bizarre-Adventure/`, run `rojo build default.project.json --output "$env:TEMP/PBA-Phase1.rbxlx"`, `lune run tests/smoke.luau`, and `lune run tests/tutorial.luau`. Run strict analysis on the headless shared modules and tests.
 
+For Studio, use the separate Pixel test place and Rojo at `127.0.0.1:34873`. The default Studio store is local to one running server. To test saves across Studio restarts in an API-enabled test place, set the boolean `UseTutorialDataStore` on ServerScriptService. Studio then uses `PBA_TutorialProfiles_Studio_v1`. A published game server uses `PBA_TutorialProfiles_v1`.
 
-## Client review
+The combined Phase 1 gate is a full Studio run with the client, including a defeat and free retry, a victory, then a saved origin after restarting the session.
 
-- Check actors, HP, Stamina, turn order, action costs and disabled explanations against the three-button tutorial HUD.
-- Check the intent label, attacker, target and landing turn against the visible enemy warning.
-- Check defeat, retry, victory and the two origin options against the authored UI flow.
-- Treat asset ID 0 as a local fallback. The five manifest keys identify the stage, three actors and starter Watch.
+## Integrated Studio verification
 
-## Tutorial interface
+Combined server PR #5 and client PR #6 in an isolated place file. Rojo 7.7.1 built the place, the Lune smoke and all seven tutorial scenarios passed, and all client and server Luau files compiled. The Studio client used all four real tutorial remotes with the mock badge clear.
 
-Phase 1 will create the four functions from `RemoteContract` under `ReplicatedStorage.Shared.TutorialRemotes`. A successful start, action or retry returns a complete snapshot and profile. The server may return a fresh snapshot if the client submitted a stale revision. Start requests carry an empty table. Repeated starts return the current battle when available. Retry is for a defeated tutorial and starts a new battle ID. Origin selection becomes available on completion and returns the saved profile.
+- Clicked Heavy, Quick, Quick, Heavy. Dario retreated on round four and the victory banner appeared.
+- Opened the origin picker, selected Hamon and confirmed. The UI displayed the saved origin and the server returned the same choice on a subsequent start request.
+- Restarted the local test, took a defeat, clicked Retry, and checked that it returned a new battle ID, 32 HP, 3 Stamina and Dario’s opening intent.
 
-Action targets and enemy intents are supplied by the server. `estimatedPower` is display information for the telegraph. Snapshot logs contain an ordered battle history so a UI can replace its transcript when resyncing. Battle turns and revisions are one-based. Revisions advance within each battle, including across enemy actions. The server derives the player from the remote context.
-
-Begin Phase 1 after the reviewed contract merges. This phase contains contract declarations and test fixtures.
+The default local Studio test used in-memory storage. Persistence across a Roblox server restart remains to be checked in the API-enabled test place with the isolated Studio DataStore.
