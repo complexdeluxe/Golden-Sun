@@ -665,9 +665,21 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		local night = snapshot.stageTag == "Night"
 		stageTagLabel.Text = if night then "NIGHT" else "NEUTRAL"
 		stageTagFill.BackgroundColor3 = if night then Night.Tag else Colors.PanelLight
-		stepLabel.Text = STEP_TEXT[snapshot.blackSabbathStep] or snapshot.blackSabbathStep
-		local stepColor = if snapshot.blackSabbathStep == "ShadowGrabWindup" then Night.Shadow
-			elseif snapshot.blackSabbathStep == "ShadowGrabLanding" then Colors.Heavy
+		local step = snapshot.blackSabbathStep
+		local grabStep = step == "ShadowGrabWindup" or step == "ShadowGrabLanding"
+		local grabLive = false
+		for _, intent in snapshot.enemyIntents do
+			if intent.moveId == "ShadowGrab" then
+				grabLive = true
+			end
+		end
+		-- A UV Flash or Hamon Interrupt removes the grab intent; say so instead of
+		-- still warning that it is about to land.
+		local grabBroken = grabStep and not grabLive
+		stepLabel.Text = if grabBroken then "GRAB BROKEN" else STEP_TEXT[step] or step
+		local stepColor = if grabBroken then Colors.Panel
+			elseif step == "ShadowGrabWindup" then Night.Shadow
+			elseif step == "ShadowGrabLanding" then Colors.Heavy
 			else Colors.Panel
 		stepFill.BackgroundColor3 = stepColor
 
@@ -1017,7 +1029,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 				local recipientId = target.recipientId
 				setRow(
 					row,
-					`NEW TARGET: {shortName(snapshot, target.recipientId)}`,
+					shortName(snapshot, target.recipientId),
 					if target.recipientIsDefending then "GUARDING (takes less damage)" else "NOT GUARDING",
 					target.legality,
 					function()

@@ -190,6 +190,11 @@ local function shortName(battle: Battle, id: string): string
 	return if actor then actor.displayName else id
 end
 
+-- "You use" / "Companion uses": the player's short name is "You".
+local function verb(id: string, plural: string, singular: string): string
+	return if id == PLAYER_ID then plural else singular
+end
+
 local function hasStatus(actor: Actor, id: StatusId): boolean
 	for _, status in actor.statuses do
 		if status.id == id then
@@ -439,7 +444,7 @@ local function dealDamage(battle: Battle, attacker: Actor, target: Actor, raw: n
 	end
 	local final = math.max(1, math.round(amount))
 	target.hp = math.max(0, target.hp - final)
-	say(battle, "Damage", `{shortName(battle, attacker.id)} hits {shortName(battle, target.id)} for {final}.`, {
+	say(battle, "Damage", `{shortName(battle, attacker.id)} {verb(attacker.id, "hit", "hits")} {shortName(battle, target.id)} for {final}.`, {
 		actorId = attacker.id,
 		targetId = target.id,
 		moveId = moveId,
@@ -1066,7 +1071,7 @@ local function strike(battle: Battle, actor: Actor, moveId: SandboxMoveId, targe
 	end
 	dealDamage(battle, actor, target, actor.power * multiplier, moveId)
 	if followUp then
-		say(battle, "Status", `{shortName(battle, actor.id)} lands the boosted follow-up on the Exposed target!`, {
+		say(battle, "Status", `{shortName(battle, actor.id)} {verb(actor.id, "land", "lands")} the boosted follow-up on the Exposed target!`, {
 			actorId = actor.id,
 			targetId = target.id,
 		})
@@ -1338,14 +1343,14 @@ function MockSandboxServer.SubmitSandboxPrimary(request: RemoteContract.SandboxP
 		actor.bonusPrimaryAvailable = false
 	end
 	local sabbath = get(battle, SABBATH_ID)
-	say(battle, "Action", `{shortName(battle, actor.id)} uses {info.label}{if slot == "BonusPrimary" then " (Bonus)" else ""}.`, {
+	say(battle, "Action", `{shortName(battle, actor.id)} {verb(actor.id, "use", "uses")} {info.label}{if slot == "BonusPrimary" then " (Bonus)" else ""}.`, {
 		actorId = actor.id,
 		moveId = chosen.moveId,
 	})
 
 	if chosen.moveId == "Defend" then
 		actor.isDefending = true
-		say(battle, "Guard", `{shortName(battle, actor.id)} braces to Guard.`, { actorId = actor.id })
+		say(battle, "Guard", `{shortName(battle, actor.id)} {verb(actor.id, "brace", "braces")} to Guard.`, { actorId = actor.id })
 		gainResolve(battle, actor, info.resolveGain, "guard")
 	elseif info.qte == "HighRiskThreeCheck" or (info.qte == "Standard" and battle.qteMode == "Manual") then
 		startQte(battle, actor, chosen.moveId, sabbath)
@@ -1381,7 +1386,7 @@ function MockSandboxServer.SubmitSandboxPrimary(request: RemoteContract.SandboxP
 		actor.onFireTurnsRemaining = 0
 		actor.finisherReady = false
 		actor.resolve = 0
-		say(battle, "Resolve", `{shortName(battle, actor.id)} spends their Fire on the Finisher.`, { actorId = actor.id })
+		say(battle, "Resolve", `{shortName(battle, actor.id)} {verb(actor.id, "spend your", "spends their")} Fire on the Finisher.`, { actorId = actor.id })
 	else
 		if strike(battle, actor, chosen.moveId, sabbath, info.multiplier) then
 			gainResolve(battle, actor, info.resolveGain, "hit")
@@ -1414,7 +1419,7 @@ function MockSandboxServer.SubmitSandboxSecondary(request: RemoteContract.Sandbo
 		if not snapshot.endTurnLegality.canUse then
 			return reject("IllegalAction", snapshot.endTurnLegality.disabledReason or "Can't end the turn yet.")
 		end
-		say(battle, "Action", `{shortName(battle, actor.id)} ends their turn.`, { actorId = actor.id })
+		say(battle, "Action", `{shortName(battle, actor.id)} {verb(actor.id, "end your", "ends their")} turn.`, { actorId = actor.id })
 		advance(battle)
 		battle.revision += 1
 		return ok(battle)
@@ -1459,7 +1464,7 @@ function MockSandboxServer.SubmitSandboxSecondary(request: RemoteContract.Sandbo
 		if info.medKit then
 			battle.medKitUsed = true
 		end
-		say(battle, "ItemUsed", `{shortName(battle, actor.id)} uses {info.label} on {shortName(battle, target.id)}: {preview.summary}.`, {
+		say(battle, "ItemUsed", `{shortName(battle, actor.id)} {verb(actor.id, "use", "uses")} {info.label} on {if target.id == actor.id and actor.id == PLAYER_ID then "yourself" else shortName(battle, target.id)}: {preview.summary}.`, {
 			actorId = actor.id,
 			targetId = target.id,
 		})
