@@ -18,7 +18,6 @@ export type ShopOffer = {
 }
 
 export type HubView = {
-	yen: number,
 	shopOffers: { ShopOffer },
 	setOutLegality: Combat.ActionLegality,
 }
@@ -40,6 +39,8 @@ export type CampaignSnapshot = {
 		appearance: Appearance.Appearance?,
 		tutorialCompleted: boolean,
 		origin: Save.Origin?,
+		level: number,
+		yen: number,
 	},
 	scene: Scene,
 	companion: Map.CompanionView,

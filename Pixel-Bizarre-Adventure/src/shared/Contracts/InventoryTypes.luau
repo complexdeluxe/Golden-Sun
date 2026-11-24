@@ -32,7 +32,8 @@ export type StackEntry = {
 	entryId: EntryId,
 	item: ItemDisplay,
 	quantity: number,
-	-- A non-belt item can appear in inventory with a disabled belt legality.
+	-- Match items in the combat PartyBelt by this ID. Required for every belt-eligible stack.
+	beltItemId: Combat.BeltItemId?,
 	beltLegality: Combat.ActionLegality,
 }
 

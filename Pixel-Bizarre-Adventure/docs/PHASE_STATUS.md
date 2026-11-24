@@ -15,12 +15,14 @@
 
 The first slice follows Creator → existing tutorial → existing Origin selection → Hub → Act 1 F1 → F2 → D1 → first companion recruitment → rejoin. Origin remains a post-tutorial commit using `ChooseOrigin`. The Creator submits appearance IDs and renders a catalog with the four skin tones and available hairstyles.
 
+The [Phase 3 handoff](CLAUDE_PHASE_3_HANDOFF.md) lists the exact screen scope and answers the six review questions.
+
 | Contract | What Claude can read and submit |
 | --- | --- |
 | `CharacterAppearanceTypes` | Default appearance, four skin-tone swatches, hair labels and legality, optional sprite keys, and stable selected skin and hair IDs. |
-| `HubTypes` | Tagged scene with the view it needs, saved appearance and Origin, companion offer state, Yen balance, shop offers, and Set Out availability. |
-| `InventoryTypes` | Gear and stack entries, base stat lines, quantities, icon keys, four gear slots, and numbered belt loadout slots. Slots reference the inventory entry ID. Gear rarity and tier are display fields. |
-| `MapTypes` | Ordered F1/F2/D1 IDs, prerequisite links, stage tags, per-node play options, active encounter identity, and finalized result and rewards. |
+| `HubTypes` | Tagged scene with the view it needs, saved appearance and Origin, character level and Yen on every scene, shop offers, and Set Out availability. |
+| `InventoryTypes` | Gear and stack entries, base stat lines, quantities, icon keys, four gear slots, and numbered belt loadout slots. Slots reference `entryId`. A belt-eligible stack supplies a `CombatTypes.BeltItemId`. Gear rarity and tier are display fields. |
+| `MapTypes` | Ordered F1/F2/D1 IDs, prerequisite links, stage tags, play options, active encounter identity, finalized rewards, and companion descriptions and sprite keys. |
 
 ### Campaign protocol
 
@@ -28,10 +30,10 @@ Stage 3.1 defines the shapes. Stage 3.3 binds `ReplicatedStorage.Shared.Campaign
 
 1. Send `GetCampaignSnapshot({})` when the campaign client starts. Render the returned `scene.kind` and its payload. A legacy profile that lacks appearance enters Creator once, then continues from its saved tutorial and Origin state. After completing the tutorial or saving Origin, refresh the campaign snapshot using the existing tutorial flow.
 2. Submit mutations through `SubmitCampaignAction` with the current `sessionId` and `expectedRevision`. The caller selects IDs and quantities. The server validates scene, eligibility, available balance, stock, and slot compatibility and returns the refreshed snapshot or an error with optional resync state. Prices and rewards come from the server. Omit `entryId` to clear a gear or belt slot.
-3. In the Hub, shop offers include a server-limited purchase quantity and Yen price. Buying a belt supply adds to that inventory stack. Equipped belt slots refer to that stock, so restocking updates their displayed quantity. Belt loadout slots and in-fight item-use limits are separate fields.
+3. In the Hub, shop offers include a server-limited purchase quantity and Yen price. Buying a belt supply adds to that inventory stack. Equipped belt slots use `entryId` for stock and icon lookup and `beltItemId` to match the combat belt row. Show the three shared charges, two direct heals, and one Med-Kit per fight using `CombatTypes.Phase2Limits`. In combat, `PartyBelt` supplies the live remaining charges, heals, and Med-Kit usage.
 4. From Act Map, send the node ID and one of its advertised `playOptionId` values. The snapshot reports node locks, stage tag, mode, tier, and level reward. First clears can advance progression. Replays award zero levels and display the tier and discovered variant the player selected. Act difficulty and story Part are independent snapshot fields.
 5. `ActEncounter` carries an encounter ID and battle ID for the combat handoff. `ActResults` carries the server-finalized outcome and rewards. Review the general Act battle snapshot and actions separately before adapting the combat HUD to the map. The current Black Sabbath sandbox remains available for combat verification.
-6. Recruitment is a server-issued offer linked to the first D1 clear and remains visible from the result or Hub until recruited. Consume it with `RecruitCompanion`. Apply `CampaignSnapshotChanged` events for server transitions such as battle results. Across a reconnect, take the new session from the startup response and ignore old-session events. Within one session render the newest revision.
+6. Recruitment is a server-issued offer linked to the first D1 clear and remains visible from the result or Hub until recruited. Consume it with `RecruitCompanion`. Both states expose the label, description, and optional sprite key. Apply `CampaignSnapshotChanged` events for server transitions such as battle results. Across a reconnect, take the new session from the startup response and ignore old-session events. Within one session render the newest revision.
 
 ### Review and exit gates
 

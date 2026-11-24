@@ -1,6 +1,7 @@
 --!strict
 
 local Appearance = require("../src/shared/Contracts/CharacterAppearanceTypes")
+local Combat = require("../src/shared/Contracts/CombatTypes")
 local Hub = require("../src/shared/Contracts/HubTypes")
 local Inventory = require("../src/shared/Contracts/InventoryTypes")
 local Map = require("../src/shared/Contracts/MapTypes")
@@ -30,15 +31,15 @@ assert(creator.kind == "Creator" and creator.catalog.defaultAppearance.hairStyle
 assert(#Appearance.SkinTones == 4 and #Inventory.GearSlots == 4)
 
 local water: Inventory.ItemDisplay = {
-	itemId = "MineralWater", label = "Mineral Water", description = "Restores HP.", iconKey = "MineralWaterIcon",
+	itemId = "tonio-water", label = "Mineral Water", description = "Restores HP.", iconKey = "MineralWaterIcon",
 }
 local stock: Inventory.StackEntry = {
-	kind = "Stack", entryId = "water-stock", item = water, quantity = 2, beltLegality = { canUse = true },
+	kind = "Stack", entryId = "water-stock", item = water,
+	quantity = 2, beltItemId = "MineralWater", beltLegality = { canUse = true },
 }
 local hub: Hub.Scene = {
 	kind = "Hub",
 	hub = {
-		yen = 40,
 		setOutLegality = { canUse = true },
 		shopOffers = {
 			{ id = "water-restock", item = water, kind = "BeltSupply", unitPriceYen = 10, maxQuantity = 2, legality = { canUse = true } },
@@ -54,21 +55,24 @@ local hubResponse: Remote.CampaignResponse = {
 	ok = true,
 	snapshot = {
 		sessionId = create.sessionId, revision = 4,
-		character = { appearance = create.appearance, tutorialCompleted = true, origin = "Part1_Hamon" },
+		character = { appearance = create.appearance, tutorialCompleted = true, origin = "Part1_Hamon", level = 2, yen = 40 },
 		scene = hub, companion = { state = "Locked" },
 	},
 }
-local function beltStock(response: Remote.CampaignResponse): number?
-	if not response.ok or response.snapshot.scene.kind ~= "Hub" then return nil end
+local function beltStock(response: Remote.CampaignResponse): (number?, Combat.BeltItemId?)
+	if not response.ok or response.snapshot.scene.kind ~= "Hub" then return nil, nil end
 	local inventory = response.snapshot.scene.inventory
 	for _, entry in inventory.entries do
 		if entry.kind == "Stack" and entry.entryId == inventory.belt[1].entryId then
-			return entry.quantity
+			return entry.quantity, entry.beltItemId
 		end
 	end
-	return nil
+	return nil, nil
 end
-assert(beltStock(hubResponse) == 2)
+local quantity, beltItemId = beltStock(hubResponse)
+assert(quantity == 2 and beltItemId == "MineralWater" and stock.item.itemId == "tonio-water")
+assert(hubResponse.ok)
+assert(hubResponse.snapshot.character.level == 2 and hubResponse.snapshot.character.yen == 40)
 
 local replay: Map.PlayOption = {
 	id = "F1:T1:replay", label = "Replay · Tier 1", mode = "Replay", tier = 1, levelsOnClear = 0,
@@ -81,7 +85,7 @@ local firstClear: Map.PlayOption = {
 local map: Hub.Scene = {
 	kind = "ActMap",
 	map = {
-		act = 1, part = 1, level = 2,
+		act = 1, part = 1,
 		nodes = {
 			{ id = "F1", label = "Flag 1", prerequisites = {}, state = "Cleared", stageTag = "Neutral", playOptions = { replay } },
 			{ id = "F2", label = "Flag 2", prerequisites = { "F1" }, state = "Available", stageTag = "Night", playOptions = { firstClear } },
@@ -101,13 +105,28 @@ local result: Hub.Scene = {
 	kind = "ActResults",
 	result = { encounterId = "act1-d1-clear", nodeId = "D1", mode = "FirstClear", outcome = "Clear", rewards = { yen = 12, levels = 1, items = {} } },
 }
-local offer: Map.CompanionView = { state = "Offered", offerId = "story-recruit", companionId = "speedwagon", label = "Speedwagon", legality = { canUse = true } }
+local offer: Map.CompanionView = {
+	state = "Offered" :: "Offered", offerId = "story-recruit", companionId = "speedwagon", label = "Speedwagon",
+	description = "A streetwise ally from Ogre Street.", spriteKey = "CompanionIdle", legality = { canUse = true },
+}
 assert(offer.state == "Offered")
 local recruit: Remote.CampaignActionRequest = {
 	kind = "RecruitCompanion", sessionId = create.sessionId, expectedRevision = 8, offerId = offer.offerId,
 }
 assert(recruit.kind == "RecruitCompanion")
 assert(result.kind == "ActResults" and result.result.nodeId == "D1" and offer.offerId == recruit.offerId)
+local resultSnapshot: Hub.CampaignSnapshot = {
+	sessionId = create.sessionId, revision = 9,
+	character = { appearance = create.appearance, tutorialCompleted = true, origin = "Part1_Hamon", level = 3, yen = 52 },
+	scene = result,
+	companion = {
+		state = "Recruited" :: "Recruited", companionId = offer.companionId, label = offer.label,
+		description = offer.description, spriteKey = offer.spriteKey,
+	},
+}
+assert(resultSnapshot.character.level == 3 and resultSnapshot.character.yen == 52)
+assert(resultSnapshot.companion.state == "Recruited")
+assert(resultSnapshot.companion.spriteKey == "CompanionIdle" and resultSnapshot.companion.description == offer.description)
 local stale: Remote.CampaignResponse = {
 	ok = false, code = "StaleRevision", message = "Campaign state changed.", snapshot = hubResponse.snapshot,
 }

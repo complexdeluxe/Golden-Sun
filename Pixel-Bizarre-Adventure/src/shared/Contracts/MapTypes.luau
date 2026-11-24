@@ -36,7 +36,6 @@ export type NodeView = {
 export type ActMapView = {
 	act: number,
 	part: number,
-	level: number,
 	nodes: { NodeView },
 }
 
@@ -61,10 +60,17 @@ export type EncounterResult = {
 	rewards: { yen: number, levels: number, items: { ItemReward } },
 }
 
+type CompanionDisplay = {
+	companionId: CompanionId,
+	label: string,
+	description: string,
+	spriteKey: AssetManifest.AssetKey?,
+}
+
 export type CompanionView =
 	{ state: "Locked" }
-	| { state: "Offered", offerId: string, companionId: CompanionId, label: string, legality: Combat.ActionLegality }
-	| { state: "Recruited", companionId: CompanionId, label: string }
+	| (CompanionDisplay & { state: "Offered", offerId: string, legality: Combat.ActionLegality })
+	| (CompanionDisplay & { state: "Recruited" })
 
 local nodeOrder: { NodeId } = { "F1", "F2", "D1" }
 
