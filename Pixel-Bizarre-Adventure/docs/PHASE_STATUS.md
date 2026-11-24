@@ -6,10 +6,10 @@
 
 | Ticket | Scope | Status |
 | --- | --- | --- |
-| 1.1 | Headless tutorial combat and acceptance tests | Server branch ready for review |
-| 1.2 | Tutorial remotes and profile persistence | Server branch ready for review |
-| 1.3 | Battle UI, feedback, retry and origin selector | Claude starts from the same `main` |
-| 1.4 | Integrated Studio playtest and persistent-save check | Pending client integration |
+| 1.1 | Headless tutorial combat and acceptance tests | Verified in the integrated local build |
+| 1.2 | Tutorial remotes and profile persistence | Verified in the integrated local build |
+| 1.3 | Battle UI, feedback, retry and origin selector | Integrated from Claude PR #6 |
+| 1.4 | Integrated Studio playtest and persistent-save check | Local UI and real remotes pass. Roblox DataStore restart check pending. |
 
 ## Client handoff
 
@@ -26,3 +26,13 @@ From `Pixel-Bizarre-Adventure/`, run `rojo build default.project.json --output "
 For Studio, use the separate Pixel test place and Rojo at `127.0.0.1:34873`. The default Studio store is local to one running server. To test saves across Studio restarts in an API-enabled test place, set the boolean `UseTutorialDataStore` on ServerScriptService. Studio then uses `PBA_TutorialProfiles_Studio_v1`. A published game server uses `PBA_TutorialProfiles_v1`.
 
 The combined Phase 1 gate is a full Studio run with the client, including a defeat and free retry, a victory, then a saved origin after restarting the session.
+
+## Integrated Studio verification
+
+Combined server PR #5 and client PR #6 in an isolated place file. Rojo 7.7.1 built the place, the Lune smoke and all seven tutorial scenarios passed, and all client and server Luau files compiled. The Studio client used all four real tutorial remotes with the mock badge clear.
+
+- Clicked Heavy, Quick, Quick, Heavy. Dario retreated on round four and the victory banner appeared.
+- Opened the origin picker, selected Hamon and confirmed. The UI displayed the saved origin and the server returned the same choice on a subsequent start request.
+- Restarted the local test, took a defeat, clicked Retry, and checked that it returned a new battle ID, 32 HP, 3 Stamina and Dario’s opening intent.
+
+The default local Studio test used in-memory storage. Persistence across a Roblox server restart remains to be checked in the API-enabled test place with the isolated Studio DataStore.
