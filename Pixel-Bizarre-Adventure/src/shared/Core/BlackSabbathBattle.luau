@@ -135,10 +135,12 @@ local function applyDamage(state: State, source: Actor, target: Actor, damage: n
 	local view = target.view
 	local before = view.hp
 	view.hp = math.max(0, view.hp - damage)
+	local damageTaken = before - view.hp
+	local verb = if view.id == PLAYER then "take" else "takes"
 	raise(state, {
 		turn = state.round, kind = "Damage", actorId = source.view.id, targetId = view.id,
-		moveId = moveId, amount = before - view.hp, qteGrade = grade,
-		message = string.format("%s takes %d damage.", view.displayName, before - view.hp),
+		moveId = moveId, amount = damageTaken, qteGrade = grade,
+		message = string.format("%s %s %d damage.", view.displayName, verb, damageTaken),
 	})
 	if view.hp == 0 then
 		note(state, "Defeated", view.displayName .. " falls.", view.id)

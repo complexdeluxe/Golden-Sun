@@ -197,6 +197,14 @@ for _, level in { 10, 50 } do
 		local fade = finishTurn(state)
 		local expected = if level == 50 then (if stage == "Night" then 43 else 37) else (if stage == "Night" then 17 else 14)
 		assert(before - state.actors.player.view.hp == expected and not state.actors.player.stunned)
+		local grabLogged = false
+		for _, event in fade.log do
+			if event.kind == "Damage" and event.moveId == "ShadowGrab" then
+				assert(event.message == string.format("You take %d damage.", expected))
+				grabLogged = true
+			end
+		end
+		assert(grabLogged)
 		assert(fade.blackSabbathStep == "FadeIntoShadow" and fade.actors[3].statuses[1].id == "Fade")
 	end
 end
