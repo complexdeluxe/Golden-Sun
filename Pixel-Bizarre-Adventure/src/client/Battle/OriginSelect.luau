@@ -55,14 +55,15 @@ function OriginSelect.new(parent: Instance, onChoose: (Origin) -> ()): OriginSel
 
 	local selected: Origin? = nil
 	local busy = false
-	local cards: { [Origin]: Frame } = {}
+	local cards: { [Origin]: { outline: Frame, fill: Frame } } = {}
 
 	local confirmBox, confirmFill = PixelUi.box(modal, "ConfirmBox", 70, 106, 100, 16, Colors.Disabled)
 	local confirm = PixelUi.button(confirmBox, "Confirm", 0, 0, 100, 16, "PICK ONE")
 
 	local function refresh()
-		for origin, cardFill in cards do
-			cardFill.BackgroundColor3 = if origin == selected then Colors.PanelLight else Colors.Panel
+		for origin, card in cards do
+			card.fill.BackgroundColor3 = if origin == selected then Colors.PanelLight else Colors.Panel
+			card.outline.BackgroundColor3 = if origin == selected then Colors.Victory else Colors.Ink
 		end
 		local ready = selected ~= nil and not busy
 		confirmFill.BackgroundColor3 = if ready then Colors.Button else Colors.Disabled
@@ -73,7 +74,7 @@ function OriginSelect.new(parent: Instance, onChoose: (Origin) -> ()): OriginSel
 	for index, info in ORIGINS do
 		local x = 10 + (index - 1) * 114
 		local card, cardFill = PixelUi.box(modal, info.origin, x, 28, 106, 72, Colors.Panel)
-		cards[info.origin] = cardFill
+		cards[info.origin] = { outline = card, fill = cardFill }
 		PixelUi.label(card, "Part", 0, 4, 106, 9, info.part, Colors.TextDim, Enum.TextXAlignment.Center)
 		PixelUi.label(card, "Title", 0, 14, 106, 12, info.title, Colors.Text, Enum.TextXAlignment.Center)
 		for line, text in info.blurb do
