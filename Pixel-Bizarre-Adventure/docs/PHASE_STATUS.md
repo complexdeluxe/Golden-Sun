@@ -1,14 +1,43 @@
 # Phase status
 
-**Active phase** — Phase 2B, Black Sabbath intent and parity sandbox.
+**Active phase** — Phase 3.1 contract review for the Creator, Hub and Act 1 slice.
 
-**Base** — Phase 1 integration merged via PR #7. Claude’s client playtest polish merged via PR #8. The real Roblox DataStore restart check remains open as a separate follow-up.
+**Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement. The real Roblox DataStore restart check remains open as a separate follow-up.
 
 | Ticket | Scope | Status |
 | --- | --- | --- |
 | 2A | Sandbox data shapes, remote names, asset keys, and HUD review | Merged in PR #9 |
-| 2B | Audited combat math and server sandbox | Verified locally with the Phase 2 HUD |
-| 2B client | Combat HUD v2 | PR #10 at `68ff68b` verified against the real server in a local Studio place |
+| 2B | Audited combat math and server sandbox | Merged and verified with Combat HUD v2 |
+| 2B client | Compact HUD and Manual ring QTE | Merged in PR #10 |
+| 3.1 | Creator, Hub, Act 1 map, inventory, and campaign routes | Draft for contract review |
+
+## Phase 3 contract review
+
+The first slice follows Creator → existing tutorial → existing Origin selection → Hub → Act 1 F1 → F2 → D1 → first companion recruitment → rejoin. Origin remains a post-tutorial commit using `ChooseOrigin`. The Creator submits appearance IDs and renders a catalog with the four skin tones and available hairstyles.
+
+| Contract | What Claude can read and submit |
+| --- | --- |
+| `CharacterAppearanceTypes` | Default appearance, four skin-tone swatches, hair labels and legality, optional sprite keys, and stable selected skin and hair IDs. |
+| `HubTypes` | Tagged scene with the view it needs, saved appearance and Origin, companion offer state, Yen balance, shop offers, and Set Out availability. |
+| `InventoryTypes` | Gear and stack entries, base stat lines, quantities, icon keys, four gear slots, and numbered belt loadout slots. Slots reference the inventory entry ID. Gear rarity and tier are display fields. |
+| `MapTypes` | Ordered F1/F2/D1 IDs, prerequisite links, stage tags, per-node play options, active encounter identity, and finalized result and rewards. |
+
+### Campaign protocol
+
+Stage 3.1 defines the shapes. Stage 3.3 binds `ReplicatedStorage.Shared.CampaignRemotes` and implements persistence and progression. The tutorial and sandbox continue using their existing folders. The v1 tutorial save schema stays at version 1 during contract review.
+
+1. Send `GetCampaignSnapshot({})` when the campaign client starts. Render the returned `scene.kind` and its payload. A legacy profile that lacks appearance enters Creator once, then continues from its saved tutorial and Origin state. After completing the tutorial or saving Origin, refresh the campaign snapshot using the existing tutorial flow.
+2. Submit mutations through `SubmitCampaignAction` with the current `sessionId` and `expectedRevision`. The caller selects IDs and quantities. The server validates scene, eligibility, available balance, stock, and slot compatibility and returns the refreshed snapshot or an error with optional resync state. Prices and rewards come from the server. Omit `entryId` to clear a gear or belt slot.
+3. In the Hub, shop offers include a server-limited purchase quantity and Yen price. Buying a belt supply adds to that inventory stack. Equipped belt slots refer to that stock, so restocking updates their displayed quantity. Belt loadout slots and in-fight item-use limits are separate fields.
+4. From Act Map, send the node ID and one of its advertised `playOptionId` values. The snapshot reports node locks, stage tag, mode, tier, and level reward. First clears can advance progression. Replays award zero levels and display the tier and discovered variant the player selected. Act difficulty and story Part are independent snapshot fields.
+5. `ActEncounter` carries an encounter ID and battle ID for the combat handoff. `ActResults` carries the server-finalized outcome and rewards. Review the general Act battle snapshot and actions separately before adapting the combat HUD to the map. The current Black Sabbath sandbox remains available for combat verification.
+6. Recruitment is a server-issued offer linked to the first D1 clear and remains visible from the result or Hub until recruited. Consume it with `RecruitCompanion`. Apply `CampaignSnapshotChanged` events for server transitions such as battle results. Across a reconnect, take the new session from the startup response and ignore old-session events. Within one session render the newest revision.
+
+### Review and exit gates
+
+- Claude reviews resume routing, source for appearance assets, shop and inventory actions, node and replay previews, the battle handoff, and companion offer fields. Freeze the shapes before client and server implementation branches start.
+- Stage 3.1 verification is Rojo build, strict Luau analysis on the shared modules and tests, and the existing four test suites plus `lune run tests/phase3_contracts.luau`.
+- The Phase 3 slice is accepted after a fresh profile finishes D1 and recruits, a returning Phase 1 profile keeps its selected Origin, and a server restart preserves appearance, clears, inventory, and recruitment.
 
 ## Section 2 HUD review
 

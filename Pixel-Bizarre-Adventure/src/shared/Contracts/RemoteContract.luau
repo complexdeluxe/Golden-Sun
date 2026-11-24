@@ -2,6 +2,10 @@
 
 local CombatTypes = require("./CombatTypes")
 local SaveTypes = require("./SaveTypes")
+local Appearance = require("./CharacterAppearanceTypes")
+local Hub = require("./HubTypes")
+local Inventory = require("./InventoryTypes")
+local Map = require("./MapTypes")
 
 export type StartTutorialRequest = {}
 export type SubmitPrimaryActionRequest = CombatTypes.ActionRequest
@@ -86,6 +90,30 @@ export type SandboxResponse =
 
 export type SandboxSnapshotChanged = CombatTypes.SandboxSnapshot
 
+export type GetCampaignSnapshotRequest = {}
+
+export type CampaignActionRequest = {
+	read sessionId: string,
+	read expectedRevision: number,
+} & (
+	{ read kind: "CommitAppearance", read appearance: Appearance.Appearance }
+	| { read kind: "Navigate", read destination: "Hub" | "ActMap" }
+	| { read kind: "PurchaseOffer", read offerId: Hub.ShopOfferId, read quantity: number }
+	| { read kind: "SetGearSlot", read slot: Inventory.GearSlot, read entryId: Inventory.EntryId? }
+	| { read kind: "SetBeltSlot", read index: number, read entryId: Inventory.EntryId? }
+	| { read kind: "StartNode", read nodeId: Map.NodeId, read playOptionId: Map.PlayOptionId }
+	| { read kind: "RecruitCompanion", read offerId: string }
+)
+
+export type CampaignErrorCode = "InvalidRequest" | "NotReady" | "SaveUnavailable" | "ProfileLocked"
+	| "StaleRevision" | "IllegalAction" | "InsufficientYen" | "OutOfStock" | "NodeLocked"
+
+export type CampaignResponse =
+	{ ok: true, snapshot: Hub.CampaignSnapshot }
+	| { ok: false, code: CampaignErrorCode, message: string, snapshot: Hub.CampaignSnapshot? }
+
+export type CampaignSnapshotChanged = Hub.CampaignSnapshot
+
 local function remoteEvent(name: string): { read name: string, read className: "RemoteEvent" }
 	return table.freeze({ name = name, className = "RemoteEvent" :: "RemoteEvent" })
 end
@@ -105,5 +133,11 @@ return table.freeze({
 		SubmitSandboxQteCheck = remoteFunction("SubmitSandboxQteCheck"),
 		SetSandboxQteMode = remoteFunction("SetSandboxQteMode"),
 		SandboxSnapshotChanged = remoteEvent("SandboxSnapshotChanged"),
+	}),
+	Campaign = table.freeze({
+		FolderName = "CampaignRemotes",
+		GetCampaignSnapshot = remoteFunction("GetCampaignSnapshot"),
+		SubmitCampaignAction = remoteFunction("SubmitCampaignAction"),
+		CampaignSnapshotChanged = remoteEvent("CampaignSnapshotChanged"),
 	}),
 })
