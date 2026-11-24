@@ -111,7 +111,7 @@ local DOCK_Y = 127
 local DOCK_H = PixelUi.NATIVE_HEIGHT - DOCK_Y
 local FEET_Y = 118
 local PLATE_W = 50
-local PARTY_SLOTS_X = { 18, 70 }
+local PARTY_SLOTS_X = { 16, 74 }
 local ENEMY_SLOT_X = 206
 local FULL_LOG_LINES = 11
 local QTE_CHOICES: { QteInput } = { "Left", "Center", "Right" }
@@ -282,8 +282,8 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 	local _ = rightPanel
 
 	-- Left: who is acting, the four entries, QTE mode.
-	local actorLabel = PixelUi.label(menuFill, "Actor", 2, 0, 36, 9, "", Colors.Active)
-	local staLabel = PixelUi.label(menuFill, "Stamina", 30, 0, 32, 9, "", Colors.Guard, Enum.TextXAlignment.Right)
+	local actorLabel = PixelUi.label(menuFill, "Actor", 2, 0, 40, 9, "", Colors.Active)
+	local staLabel = PixelUi.label(menuFill, "Stamina", 42, 0, 20, 9, "", Colors.Guard, Enum.TextXAlignment.Right)
 	type MenuView = { fill: Frame, label: TextLabel, extra: TextLabel, button: TextButton }
 	local menuViews: { [MenuEntry]: MenuView } = {}
 	for i, entry in MENU_ORDER do
@@ -949,7 +949,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		if actor then
 			actorLabel.Text = shortName(snapshot, actor.id)
 			actorLabel.TextColor3 = Colors.Active
-			staLabel.Text = `STA {actor.stamina}/{actor.maxStamina}`
+			staLabel.Text = `{actor.stamina}/{actor.maxStamina}`
 		elseif live then
 			actorLabel.Text = shortName(snapshot, snapshot.activeActorId)
 			actorLabel.TextColor3 = Colors.Heavy
@@ -1057,6 +1057,8 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		skillsBody.Visible = which == skillsBody
 		beltBody.Visible = which == beltBody
 		targetBody.Visible = which == targetBody
+		-- Target rows put BACK where the tag goes, so the title can run longer.
+		centerTitle.Size = UDim2.fromOffset(if which == targetBody then 118 else 70, 9)
 	end
 
 	local function slotTag(option: PrimaryOption): string
@@ -1110,7 +1112,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 				local usable = option.legality.canUse and not busy
 				local finisher = option.moveId == "Finisher" and option.legality.canUse
 				row.cells[1].Text = MOVE_NAME[option.moveId] or option.label
-				row.cells[2].Text = if option.staminaCost > 0 then `{option.staminaCost} STA` else "-"
+				row.cells[2].Text = if option.staminaCost > 0 then `{option.staminaCost}ST` else "-"
 				row.cells[3].Text = TAG_SHORT[option.scalingTag] or ""
 				local note = if option.legality.canUse
 					then (if option.qte == "HighRiskThreeCheck" then "3 CHECKS"
@@ -1204,7 +1206,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 				return
 			end
 			centerTitle.Text = `{string.upper(item.label)} x{item.stock}`
-			centerTag.Text = "SECONDARY"
+			centerTag.Text = "" -- BACK sits here
 			centerTag.TextColor3 = Colors.Guard
 			targetTip.Text = if item.itemId == "UVFlash" then UV_TOOLTIP
 				elseif item.legality.canUse then "Pick who gets it:"
@@ -1231,7 +1233,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 			end
 			local limit = CombatTypes.Phase2Limits.CompanionRedirectsPerFight
 			centerTitle.Text = `REDIRECT {redirect.usesRemaining}/{limit}`
-			centerTag.Text = "SECONDARY"
+			centerTag.Text = "" -- BACK sits here
 			centerTag.TextColor3 = Colors.Guard
 			local intentName = "the attack"
 			for _, intent in snapshot.enemyIntents do
