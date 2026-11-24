@@ -44,10 +44,64 @@ local function remoteFunction(name: string): { read name: string, read className
 	return table.freeze({ name = name, className = "RemoteFunction" :: "RemoteFunction" })
 end
 
+export type StartSandboxRequest = {
+	-- The server supports fixtures at levels 10 and 50.
+	level: number,
+	stageTag: "Night" | "Neutral",
+	qteMode: CombatTypes.QteMode,
+}
+
+export type SandboxBattleRef = { battleId: string }
+export type SandboxBattleRevision = { battleId: string, expectedRevision: number }
+
+export type SandboxPrimaryRequest = SandboxBattleRevision & {
+	actorId: CombatTypes.ActorId,
+	slot: CombatTypes.PrimarySlot,
+	moveId: CombatTypes.SandboxMoveId,
+	targetId: CombatTypes.ActorId?,
+}
+
+export type SandboxSecondaryRequest = SandboxBattleRevision & (
+	{ kind: "UseBeltItem", actorId: CombatTypes.ActorId, itemId: CombatTypes.BeltItemId, targetId: CombatTypes.ActorId }
+	| { kind: "SetCompanionTactic", actorId: CombatTypes.ActorId, tacticMode: CombatTypes.TacticMode }
+	| { kind: "CompanionGuardRedirect", actorId: CombatTypes.ActorId, intentId: string, recipientId: CombatTypes.ActorId }
+)
+
+export type SandboxQteModeRequest = SandboxBattleRevision & { qteMode: CombatTypes.QteMode }
+
+-- One input per check. Server time and the active challenge determine validity.
+export type SandboxQteCheckRequest = SandboxBattleRef & {
+	challengeId: string,
+	checkIndex: CombatTypes.QteCheckIndex,
+	input: CombatTypes.QteInput,
+}
+
+export type SandboxErrorCode = ErrorCode | "ChallengeExpired" | "InvalidCheck" | "QtePending"
+
+export type SandboxResponse =
+	{ ok: true, snapshot: CombatTypes.SandboxSnapshot }
+	| { ok: false, code: SandboxErrorCode, message: string, snapshot: CombatTypes.SandboxSnapshot? }
+
+export type SandboxSnapshotChanged = CombatTypes.SandboxSnapshot
+
+local function remoteEvent(name: string): { read name: string, read className: "RemoteEvent" }
+	return table.freeze({ name = name, className = "RemoteEvent" :: "RemoteEvent" })
+end
+
 return table.freeze({
 	FolderName = "TutorialRemotes",
 	StartTutorial = remoteFunction("StartTutorial"),
 	SubmitPrimaryAction = remoteFunction("SubmitPrimaryAction"),
 	RetryTutorial = remoteFunction("RetryTutorial"),
 	ChooseOrigin = remoteFunction("ChooseOrigin"),
+	Sandbox = table.freeze({
+		FolderName = "BlackSabbathRemotes",
+		StartSandbox = remoteFunction("StartSandbox"),
+		GetSandboxSnapshot = remoteFunction("GetSandboxSnapshot"),
+		SubmitSandboxPrimary = remoteFunction("SubmitSandboxPrimary"),
+		SubmitSandboxSecondary = remoteFunction("SubmitSandboxSecondary"),
+		SubmitSandboxQteCheck = remoteFunction("SubmitSandboxQteCheck"),
+		SetSandboxQteMode = remoteFunction("SetSandboxQteMode"),
+		SandboxSnapshotChanged = remoteEvent("SandboxSnapshotChanged"),
+	}),
 })
