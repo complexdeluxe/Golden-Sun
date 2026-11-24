@@ -1,5 +1,7 @@
 --!strict
 
+local AssetManifest = require("./AssetManifest")
+
 export type ActorId = string
 export type Team = "Player" | "Enemy"
 export type MoveId = "QuickStrike" | "HeavyStrike" | "Defend"
@@ -16,6 +18,8 @@ export type ActorState = {
 	power: number,
 	isDefending: boolean,
 	team: Team,
+	-- Which manifest sprite the client draws for this actor. Nil means use a local placeholder.
+	spriteKey: AssetManifest.AssetKey?,
 }
 
 export type EnemyIntent = {
@@ -55,7 +59,7 @@ export type TurnOrderEntry = {
 
 export type CombatLogEvent = {
 	turn: number,
-	kind: "Action" | "Damage" | "Guard" | "Join" | "Flee" | "Outcome",
+	kind: "Action" | "Damage" | "Guard" | "Join" | "Defeated" | "Flee" | "Outcome",
 	actorId: ActorId?,
 	targetId: ActorId?,
 	moveId: string?,
