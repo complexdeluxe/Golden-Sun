@@ -135,10 +135,12 @@ local function applyDamage(state: State, source: Actor, target: Actor, damage: n
 	local view = target.view
 	local before = view.hp
 	view.hp = math.max(0, view.hp - damage)
+	local damageTaken = before - view.hp
+	local verb = if view.id == PLAYER then "take" else "takes"
 	raise(state, {
 		turn = state.round, kind = "Damage", actorId = source.view.id, targetId = view.id,
-		moveId = moveId, amount = before - view.hp, qteGrade = grade,
-		message = string.format("%s takes %d damage.", view.displayName, before - view.hp),
+		moveId = moveId, amount = damageTaken, qteGrade = grade,
+		message = string.format("%s %s %d damage.", view.displayName, verb, damageTaken),
 	})
 	if view.hp == 0 then
 		note(state, "Defeated", view.displayName .. " falls.", view.id)
@@ -372,19 +374,31 @@ local function secondaryLegality(state: State, actor: Actor?): Combat.ActionLega
 	return when(assert(actor).view.secondaryAvailable, "Secondary already spent.")
 end
 
+local function availablePrimarySlot(actor: Actor): Combat.PrimarySlot?
+	local view = actor.view
+	if view.primaryAvailable then return "Primary" end
+	return if view.bonusPrimaryAvailable then "BonusPrimary" else nil
+end
+
 local function endTurnLegality(state: State, actor: Actor?): Combat.ActionLegality
 	local legality = canAct(state, actor)
 	if not legality.canUse then return legality end
-	return when(not assert(actor).view.primaryAvailable, "Resolve your Primary first.")
+	return when(availablePrimarySlot(assert(actor)) == nil, "A Primary is still available.")
+end
+
+local function completePrimary(state: State, actor: Actor)
+	if state.outcome == "InProgress" and availablePrimarySlot(actor) == nil then
+		endTurn(state, actor)
+	end
 end
 
 local function primaryLegality(state: State, actor: Actor, move: Encounter.Move, slot: Combat.PrimarySlot): Combat.ActionLegality
 	local legality = canAct(state, actor)
 	if not legality.canUse then return legality end
 	local view = actor.view
-	if slot == "BonusPrimary" then
-		if view.primaryAvailable or not view.bonusPrimaryAvailable then return blocked("No Bonus Primary available.") end
-	elseif not view.primaryAvailable then return blocked("Primary is unavailable.") end
+	if availablePrimarySlot(actor) ~= slot then
+		return blocked(if slot == "BonusPrimary" then "No Bonus Primary available." else "Primary is unavailable.")
+	end
 	if view.stamina < move.cost then return blocked("Not enough Stamina.") end
 	if move.id == "Finisher" and not view.finisherReady then return blocked("Finisher requires On Fire.") end
 	if move.id == "HamonInterrupt" and not canInterrupt(state, state.actors[SABBATH]) then return blocked("No interruptible windup.") end
@@ -415,7 +429,7 @@ end
 local function viewOptions(state: State, actor: Actor?): { Combat.PrimaryOption }
 	local options: { Combat.PrimaryOption } = {}
 	if actor then
-		local slot: Combat.PrimarySlot = if not actor.view.primaryAvailable and actor.view.bonusPrimaryAvailable then "BonusPrimary" else "Primary"
+		local slot = availablePrimarySlot(actor) or "Primary"
 		for _, move in Encounter.Moves do
 			local target = if move.id == "Defend" then actor else state.actors[SABBATH]
 			table.insert(options, {
@@ -715,7 +729,12 @@ function Battle.submitPrimary(state: State, request: Remote.SandboxPrimaryReques
 
 		local view = actor.view
 		view.stamina -= move.cost
-		if request.slot == "Primary" then view.primaryAvailable = false else view.bonusPrimaryAvailable = false end
+		if request.slot == "Primary" then
+			view.primaryAvailable = false
+			view.secondaryAvailable = false
+		else
+			view.bonusPrimaryAvailable = false
+		end
 		raise(state, {
 			turn = state.round, kind = "Action", actorId = view.id, targetId = targetId, moveId = move.id,
 			message = view.displayName .. (if view.id == PLAYER then " use " else " uses ") .. move.label .. ".",
@@ -732,6 +751,7 @@ function Battle.submitPrimary(state: State, request: Remote.SandboxPrimaryReques
 				resolvePrimary(state, actor, target, move, nil)
 			end
 		end
+		if not state.qte then completePrimary(state, actor) end
 		return commit(state)
 	end
 	return reject(state, "InvalidRequest", "Unknown Primary.")
@@ -831,7 +851,9 @@ local function checkResult(state: State, challenge: Challenge, hit: boolean)
 	challenge.nextIndex += 1
 	if challenge.nextIndex > #challenge.results then
 		state.qte = nil
-		resolvePrimary(state, state.actors[challenge.actorId], state.actors[challenge.targetId], challenge.move, challenge)
+		local actor = state.actors[challenge.actorId]
+		resolvePrimary(state, actor, state.actors[challenge.targetId], challenge.move, challenge)
+		completePrimary(state, actor)
 	end
 end
 

@@ -27,10 +27,10 @@ local function primary(state: Battle.State, move: Combat.SandboxMoveId, slot: Co
 	})
 end
 
-local function finishTurn(state: Battle.State): Combat.SandboxSnapshot
-	return success(Battle.submitSecondary(state, {
-		battleId = state.id, expectedRevision = state.revision, actorId = assert(state.active), kind = "EndTurn",
-	}))
+local function skipTurn(state: Battle.State, actorId: string?): Remote.SandboxResponse
+	return Battle.submitSecondary(state, {
+		battleId = state.id, expectedRevision = state.revision, actorId = actorId or assert(state.active), kind = "EndTurn",
+	})
 end
 
 local function belt(state: Battle.State, item: Combat.BeltItemId, target: string): Remote.SandboxResponse
@@ -45,8 +45,7 @@ local function guardRound(state: Battle.State): Combat.SandboxSnapshot
 	local snapshot = Battle.snapshot(state)
 	while state.round == start do
 		local id = assert(state.active)
-		if state.actors[id].view.primaryAvailable then success(primary(state, "Defend")) end
-		snapshot = finishTurn(state)
+		snapshot = if state.actors[id].view.primaryAvailable then success(primary(state, "Defend")) else success(skipTurn(state))
 	end
 	return snapshot
 end
@@ -85,6 +84,40 @@ assert(Math.damage({ raw = 100, sourceBonus = 0.6, defense = 255, mitigationPp =
 assert(Math.damage({ raw = 100, defense = 0, armor = 60, guarding = true, act = 5 }) == 52)
 assert(Math.damage({ raw = 100, defense = 0, armor = 0, guarding = true, shatter = true, act = 5 }) == 100)
 
+do
+	local state = fixture("AutoGood")
+	assert(not skipTurn(state).ok)
+	local usedItem = success(belt(state, "CoffeeGum", "player"))
+	assert(usedItem.activeActorId == "player" and usedItem.actors[1].primaryAvailable)
+	local advanced = success(primary(state, "BasicStrike"))
+	assert(advanced.activeActorId == "companion" and advanced.turn == 1)
+	assert(advanced.revision == usedItem.revision + 1 and advanced.belt.beltChargesRemaining == 2)
+	assert(not skipTurn(state, "player").ok and not skipTurn(state).ok)
+	assert(Battle.snapshot(state).revision == advanced.revision)
+end
+
+do
+	local state = fixture("AutoGood")
+	local player = state.actors.player.view
+	local stamina = player.stamina
+	player.bonusPrimaryAvailable = true
+	assert(not primary(state, "BasicStrike", "BonusPrimary").ok)
+	local regular = success(primary(state, "BasicStrike"))
+	assert(regular.activeActorId == "player" and regular.actors[1].bonusPrimaryAvailable)
+	assert(not regular.actors[1].secondaryAvailable and not regular.endTurnLegality.canUse)
+	assert(not primary(state, "BasicStrike").ok)
+	local bonus = success(primary(state, "BasicStrike", "BonusPrimary"))
+	assert(bonus.activeActorId == "companion" and not bonus.actors[1].bonusPrimaryAvailable)
+	assert(bonus.actors[1].stamina == stamina and not primary(state, "BasicStrike", "BonusPrimary").ok)
+end
+
+do
+	local state = fixture("AutoGood")
+	state.actors.black_sabbath.view.hp = 1
+	local victory = success(primary(state, "BasicStrike"))
+	assert(victory.outcome == "Victory" and victory.activeActorId == nil)
+end
+
 for grade = 0, 3 do
 	local state = fixture("AutoGood")
 	state.actors.player.view.resolve = 10
@@ -93,10 +126,14 @@ for grade = 0, 3 do
 	local prompt = assert(initial.qtePrompt)
 	assert(prompt.mode == "UntimedCue" and initial.actors[1].stamina == 1)
 	assert(initial.endTurnLegality.canUse == false and not belt(state, "CoffeeGum", "player").ok)
+	assert(not skipTurn(state).ok)
 	for i = 1, 3 do
 		local snapshot = check(state, prompt, i, i <= grade)
 		if i < 3 then
+			assert(snapshot.activeActorId == "player")
 			assert(snapshot.qtePrompt and snapshot.qtePrompt.checkResults[i] == (if i <= grade then "Hit" else "Miss"))
+		else
+			assert(snapshot.activeActorId == "companion" and snapshot.qtePrompt == nil)
 		end
 	end
 	local player = state.actors.player.view
@@ -145,7 +182,7 @@ do
 	now = prompt.checks[3].closesAtServerTime
 	local late = submit(3, "Confirm")
 	assert(not late.ok and late.code == "ChallengeExpired")
-	assert(state.actors.player.view.resolve == 0 and state.qte == nil)
+	assert(state.actors.player.view.resolve == 0 and state.qte == nil and state.active == "companion")
 end
 
 do
@@ -166,9 +203,11 @@ do
 	assert(Battle.expireChecks(state))
 	local nextPrompt = assert(Battle.snapshot(state).qtePrompt)
 	assert(nextPrompt.checkResults[1] == "Miss" and nextPrompt.nextCheckIndex == 2)
+	assert(state.active == "player")
 	now = prompt.checks[3].closesAtServerTime
 	assert(Battle.expireChecks(state) and Battle.nextDeadline(state) == nil)
 	assert(state.log[#state.log].kind == "FailedQTE_0of3")
+	assert(state.active == "companion")
 end
 
 do
@@ -176,7 +215,7 @@ do
 	local prompt = assert(success(primary(state, "HighRiskHeavy")).qtePrompt)
 	for i = 1, 3 do check(state, prompt, i, true) end
 	assert(state.assistUsed and not state.actors.player.view.bonusPrimaryAvailable)
-	finishTurn(state)
+	assert(state.active == "companion")
 	local second = assert(success(primary(state, "HeavyStrike")).qtePrompt)
 	assert(second.mode == "Manual" and #second.checks == 1 and second.kind == "Standard")
 	check(state, second, 1, true)
@@ -192,11 +231,17 @@ for _, level in { 10, 50 } do
 		guardRound(state)
 		local before = state.actors.player.view.hp
 		success(primary(state, "Defend"))
-		finishTurn(state)
-		success(primary(state, "Defend"))
-		local fade = finishTurn(state)
+		local fade = success(primary(state, "Defend"))
 		local expected = if level == 50 then (if stage == "Night" then 43 else 37) else (if stage == "Night" then 17 else 14)
 		assert(before - state.actors.player.view.hp == expected and not state.actors.player.stunned)
+		local grabLogged = false
+		for _, event in fade.log do
+			if event.kind == "Damage" and event.moveId == "ShadowGrab" then
+				assert(event.message == string.format("You take %d damage.", expected))
+				grabLogged = true
+			end
+		end
+		assert(grabLogged)
 		assert(fade.blackSabbathStep == "FadeIntoShadow" and fade.actors[3].statuses[1].id == "Fade")
 	end
 end
@@ -214,10 +259,8 @@ do
 		and response.companion.redirect.usesRemaining == 0)
 	guardRound(state)
 	success(primary(state, "Defend"))
-	finishTurn(state)
-	success(primary(state, "Defend"))
 	local before = state.actors.companion.view.hp
-	finishTurn(state)
+	success(primary(state, "Defend"))
 	assert(state.actors.companion.view.hp < before and not state.actors.companion.stunned)
 end
 
@@ -240,7 +283,6 @@ for _, lands in { false, true } do
 	success(primary(state, "HamonInterrupt"))
 	assert((state.intent == nil) == lands and state.exposed == lands)
 	if lands then
-		finishTurn(state)
 		local followUp = Battle.snapshot(state).exposure
 		assert(followUp and followUp.exposedFollowUpActorId == "companion")
 		success(primary(state, "BasicStrike"))
@@ -253,20 +295,19 @@ do
 	guardRound(state)
 	guardRound(state)
 	success(primary(state, "BasicStrike"))
-	finishTurn(state)
 	success(primary(state, "Defend"))
-	finishTurn(state)
 	assert(state.actors.player.stunned == false and not state.actors.player.view.primaryAvailable)
 	assert(Battle.snapshot(state).endTurnLegality.canUse)
 
 	state.actors.player.view.hp = 50
 	state.actors.companion.view.hp = 50
 	assert(success(belt(state, "MedKit", "player")).belt.medKitUsed)
-	finishTurn(state)
+	local skipped = success(skipTurn(state))
+	assert(skipped.activeActorId == "companion" and skipped.belt.beltChargesRemaining == 2)
+	assert(not skipTurn(state, "player").ok and not skipTurn(state).ok)
 	assert(not belt(state, "MedKit", "companion").ok)
 	success(belt(state, "MineralWater", "companion"))
 	success(primary(state, "Defend"))
-	finishTurn(state)
 	assert(not belt(state, "CapreseSalad", "player").ok)
 	state.actors.player.view.resolve = 80
 	state.actors.player.view.resolveGainedThisTurn = 16
