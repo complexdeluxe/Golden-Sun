@@ -34,6 +34,18 @@ local PALETTES: { [string]: Palette } = {
 		legs = Color3.fromHex("#5b2d50"),
 		hair = Color3.fromHex("#8a5a2b"),
 	},
+	CompanionIdle = {
+		skin = Color3.fromHex("#c98b5a"),
+		top = Color3.fromHex("#3f8a5c"),
+		legs = Color3.fromHex("#2d3b33"),
+		hair = Color3.fromHex("#d9c35a"),
+	},
+	BlackSabbathIdle = {
+		skin = Color3.fromHex("#2a2438"),
+		top = Color3.fromHex("#14111f"),
+		legs = Color3.fromHex("#14111f"),
+		hair = Color3.fromHex("#7a4fd6"),
+	},
 }
 
 local FALLBACK: Palette = {
