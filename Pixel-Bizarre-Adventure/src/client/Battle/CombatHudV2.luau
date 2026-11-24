@@ -282,8 +282,8 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 	local _ = rightPanel
 
 	-- Left: who is acting, the four entries, QTE mode.
-	local actorLabel = PixelUi.label(menuFill, "Actor", 2, 0, 40, 9, "", Colors.Active)
-	local staLabel = PixelUi.label(menuFill, "Stamina", 42, 0, 20, 9, "", Colors.Guard, Enum.TextXAlignment.Right)
+	local actorLabel = PixelUi.label(menuFill, "Actor", 2, 0, 46, 9, "", Colors.Active)
+	local staLabel = PixelUi.label(menuFill, "Stamina", 48, 0, 14, 9, "", Colors.Guard, Enum.TextXAlignment.Right)
 	type MenuView = { fill: Frame, label: TextLabel, extra: TextLabel, button: TextButton }
 	local menuViews: { [MenuEntry]: MenuView } = {}
 	for i, entry in MENU_ORDER do
@@ -716,6 +716,8 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 			local step = if maxPips > 0 then math.max(2, math.min(4, (20 + 1) // maxPips)) else 4
 			local width = maxPips * step - 1
 			view.pipRow.Position = UDim2.fromOffset(PLATE_W - width, 14)
+			-- No Stamina (Black Sabbath): give the HP text the whole plate.
+			view.hpText.Size = UDim2.fromOffset(if maxPips > 0 then PLATE_W - width - 2 else PLATE_W - 2, 8)
 			for i = 1, maxPips do
 				table.insert(view.pips, PixelUi.frame(view.pipRow, `Pip{i}`, (i - 1) * step, 0, step - 1, 3, Colors.StaminaBack))
 			end
@@ -860,6 +862,10 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		local when = if intent.landingTurn <= snapshot.turn then "NOW" else `T{intent.landingTurn}`
 		local verb = if intent.stage == "Windup" then "LANDS" elseif intent.stage == "Landing" then "LANDING" else "HITS"
 		local line1 = `INTENT: {string.upper(intent.label)} ({verb} {when})`
+		if #line1 > 33 then
+			-- Long move names: drop the prefix so the timing stays readable.
+			line1 = `{string.upper(intent.label)} ({verb} {when})`
+		end
 		local parts: { string } = {}
 		if intent.targetId == intent.actorId then
 			table.insert(parts, "Self")
