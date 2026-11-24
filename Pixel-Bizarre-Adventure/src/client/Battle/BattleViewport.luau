@@ -45,6 +45,7 @@ type FighterView = {
 	flash: Frame,
 	nameLabel: TextLabel,
 	setHp: (number) -> (),
+	hpOuter: Frame,
 	hpText: TextLabel,
 	pips: { Frame },
 	guardTag: Frame,
@@ -77,7 +78,7 @@ local FEET_Y = 140
 local PLATE_W = 64
 local INTENT_W = 88
 local ACTION_ORDER: { MoveId } = { "QuickStrike", "HeavyStrike", "Defend" }
-local LOG_LINES = 3
+local LOG_LINES = 2
 local FULL_LOG_LINES = 15
 
 -- Where each fighter's 96 x 96 canvas sits. Player on the left facing right,
@@ -98,7 +99,12 @@ local function shortName(snapshot: CombatSnapshot, actorId: string?, actors: { [
 	if not actor then
 		return string.upper(actorId)
 	end
-	return string.upper(actor.displayName)
+	-- Short label: "Dario Brando" -> DARIO, "Dario's Wife" -> WIFE (straight or curly apostrophe).
+	local first = string.match(actor.displayName, "^%S+") or actor.displayName
+	if string.sub(first, -2) == "'s" or string.sub(first, -4) == "\u{2019}s" then
+		return string.upper(string.match(actor.displayName, "%S+$") or first)
+	end
+	return string.upper(first)
 end
 
 local function drawPlaceholderStage(parent: Frame)
@@ -137,7 +143,7 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 	local queueChips: { Frame } = {}
 
 	-- Server badge ---------------------------------------------------------
-	local serverBadge = PixelUi.label(hud, "ServerBadge", 236, 135, 80, 10, "", Colors.Mock, Enum.TextXAlignment.Right)
+	local serverBadge = PixelUi.label(hud, "ServerBadge", 246, 30, 70, 10, "", Colors.Mock, Enum.TextXAlignment.Right)
 
 	-- Action bar -----------------------------------------------------------
 	local actionBar = PixelUi.box(hud, "Actions", 4, 146, 168, 30, Colors.Panel)
@@ -150,7 +156,9 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 	local logPanel = PixelUi.box(hud, "Log", 176, 146, 140, 30, Colors.Panel)
 	local logLines: { TextLabel } = {}
 	for i = 1, LOG_LINES do
-		table.insert(logLines, PixelUi.label(logPanel, `Line{i}`, 3, 1 + (i - 1) * 9, 134, 9, "", Colors.Text))
+		local line = PixelUi.label(logPanel, `Line{i}`, 3, 1 + (i - 1) * 14, 134, 14, "", Colors.Text)
+		line.TextWrapped = true
+		table.insert(logLines, line)
 	end
 	local logButton = PixelUi.button(logPanel, "OpenFullLog", 0, 0, 140, 30, "")
 	logButton.ZIndex = 3
@@ -233,7 +241,7 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 		button.MouseEnter:Connect(function()
 			local option = currentOption(moveId)
 			if option and not option.legality.canUse then
-				hoveredReason = `{string.upper(option.label)}: {option.legality.disabledReason}`
+				hoveredReason = option.legality.disabledReason
 			elseif option then
 				fill.BackgroundColor3 = Colors.ButtonHover
 			end
@@ -254,7 +262,7 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 			end
 			if not option.legality.canUse then
 				-- Tapping a disabled move on touch screens shows why.
-				hoveredReason = `{string.upper(option.label)}: {option.legality.disabledReason}`
+				hoveredReason = option.legality.disabledReason
 				refreshReason()
 				return
 			end
@@ -272,10 +280,10 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 		-- Plate: name, HP bar, HP numbers, Stamina pips. Sits above the head.
 		local plate = PixelUi.frame(holder, "Plate", (96 - PLATE_W) // 2, -2, PLATE_W, 28)
 		local nameLabel = PixelUi.label(plate, "Name", 0, 0, PLATE_W, 8, actor.displayName, Colors.Text, Enum.TextXAlignment.Center)
-		local _, setHp = PixelUi.bar(plate, "Hp", 0, 9, PLATE_W, 5, Colors.Hp, Colors.HpBack)
+		local hpOuter, setHp = PixelUi.bar(plate, "Hp", 0, 9, PLATE_W, 5, Colors.Hp, Colors.HpBack)
 		local hpText = PixelUi.label(plate, "HpText", 0, 14, PLATE_W, 8, "", Colors.Text, Enum.TextXAlignment.Center)
 		local pips: { Frame } = {}
-		local pipsWidth = actor.maxStamina * 7 - 1
+		local pipsWidth = math.max(0, actor.maxStamina * 7 - 1)
 		local pipRow = PixelUi.frame(plate, "Stamina", (PLATE_W - pipsWidth) // 2, 23, pipsWidth, 4)
 		for i = 1, actor.maxStamina do
 			table.insert(pips, PixelUi.frame(pipRow, `Pip{i}`, (i - 1) * 7, 0, 6, 4, Colors.StaminaBack))
@@ -293,7 +301,7 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 		local intentLine2 = PixelUi.label(intent, "Detail", 3, 10, INTENT_W - 6, 9, "", Colors.Text)
 		intent.Visible = false
 
-		-- Tap an enemy to target it. The selected enemy's name is shown as > NAME <.
+		-- Tap an enemy to target it. The selected enemy gets a yellow name and HP frame.
 		local hitbox = PixelUi.button(holder, "Select", 30, 20, 36, 70, "")
 		hitbox.Visible = actor.team == "Enemy"
 		hitbox.Activated:Connect(function()
@@ -307,6 +315,7 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 			flash = flash,
 			nameLabel = nameLabel,
 			setHp = setHp,
+			hpOuter = hpOuter,
 			hpText = hpText,
 			pips = pips,
 			guardTag = guardTag,
@@ -332,7 +341,8 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 		local showMarker = living > 1 and snapshot ~= nil and snapshot.outcome == "InProgress"
 		for id, view in fighters do
 			local selected = showMarker and id == selectedTargetId
-			view.nameLabel.Text = if selected then `> {view.displayName} <` else view.displayName
+			view.nameLabel.Text = view.displayName
+			view.hpOuter.BackgroundColor3 = if selected then Colors.Victory else Colors.Ink
 			local active = snapshot ~= nil and id == snapshot.activeActorId
 			view.nameLabel.TextColor3 = if selected then Colors.Victory elseif active then Colors.Active else Colors.Text
 		end
@@ -458,13 +468,14 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 			if option then
 				view.box.Visible = true
 				local usable = option.legality.canUse and not busy
-				view.title.Text = string.upper(option.label)
+				-- First word only so it fits the button: "Quick Strike" -> QUICK.
+				view.title.Text = string.upper(string.match(option.label, "^%S+") or option.label)
 				view.cost.Text = if option.staminaCost > 0 then `{option.staminaCost} STA` else "FREE"
 				view.fill.BackgroundColor3 = if usable then Colors.Button else Colors.Disabled
 				view.title.TextColor3 = if usable then Colors.Text else Colors.TextDim
 				view.cost.TextColor3 = if usable then Colors.Stamina else Colors.TextDim
 				if not option.legality.canUse and firstReason == "" and snapshot.outcome == "InProgress" then
-					firstReason = `{string.upper(option.label)}: {option.legality.disabledReason}`
+					firstReason = option.legality.disabledReason or ""
 				end
 			else
 				view.box.Visible = false
@@ -499,7 +510,7 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 			bannerTitle.Text = "VICTORY!"
 			bannerTitle.TextColor3 = Colors.Victory
 			if profile.origin ~= nil then
-				bannerSub.Text = `ORIGIN: {OriginSelect.displayName(profile.origin)}`
+				bannerSub.Text = `ORIGIN SAVED: {OriginSelect.displayName(profile.origin)}`
 				bannerButtonBox.Visible = false
 			else
 				bannerSub.Text = "Choose how your story begins."
