@@ -22,12 +22,13 @@ local prompt: Combat.QtePrompt = {
 		{ index = 2, prompt = "Read the second cue", choices = { "Left", "Center", "Right" } },
 		{ index = 3, prompt = "Read the third cue", choices = { "Left", "Center", "Right" } },
 	},
-	nextCheckIndex = 1,
+	checkResults = { "Hit", "Miss", "Pending" },
+	nextCheckIndex = 3,
 }
 local check: Remote.SandboxQteCheckRequest = {
 	battleId = primary.battleId,
 	challengeId = prompt.id,
-	checkIndex = 1,
+	checkIndex = 3,
 	input = "Left",
 }
 local redirect: Remote.SandboxSecondaryRequest = {
@@ -38,6 +39,23 @@ local redirect: Remote.SandboxSecondaryRequest = {
 	intentId = "shadow-grab",
 	recipientId = "companion",
 }
+
+local endTurn: Remote.SandboxSecondaryRequest = {
+	battleId = primary.battleId,
+	expectedRevision = 2,
+	kind = "EndTurn",
+	actorId = primary.actorId,
+}
+local fade: Combat.StatusView = {
+	id = "Fade",
+	label = "Fade (+20 Dodge)",
+	isRemovable = false,
+	turnsRemaining = 1,
+}
+local endTurnLegality: index<Combat.SandboxSnapshot, "endTurnLegality"> = { canUse = true, disabledReason = nil }
+assert(endTurn.kind == "EndTurn" and endTurn.actorId == primary.actorId and endTurnLegality.canUse)
+assert(fade.id == "Fade" and fade.turnsRemaining == 1 and not fade.isRemovable)
+assert(prompt.checkResults[1] == "Hit" and prompt.checkResults[2] == "Miss" and prompt.checkResults[check.checkIndex] == "Pending")
 
 assert(start.stageTag == "Night" and start.level == 10)
 assert(#prompt.checks == 3 and check.challengeId == prompt.id and redirect.battleId == primary.battleId)

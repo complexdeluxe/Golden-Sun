@@ -97,12 +97,13 @@ export type SandboxMoveId = "BasicStrike" | "HeavyStrike" | "HighRiskHeavy" | "D
 export type BeltItemId =
 	"MineralWater" | "CapreseSalad" | "MedKit" | "CoffeeGum" | "BloodVial"
 	| "UVFlash" | "SmellingSalts" | "SmokePellet" | "PassioneEspresso" | "SpikedWhetstone"
-export type StatusId = "Bleed" | "Burn" | "Slow" | "FogWound" | "AgeDown" | "CoinBomb" | "Stun" | "Exposed"
+export type StatusId = "Bleed" | "Burn" | "Slow" | "FogWound" | "AgeDown" | "CoinBomb" | "Stun" | "Exposed" | "Fade"
 
 export type StatusView = {
 	id: StatusId,
 	label: string,
 	isRemovable: boolean,
+	-- Fade includes its remaining duration and is not removable.
 	turnsRemaining: number?,
 }
 
@@ -217,9 +218,26 @@ export type UntimedQteCheck = {
 	choices: { QteInput },
 }
 
+export type QteCheckResult = "Pending" | "Hit" | "Miss"
+
+-- The server returns one result per check in the same order as the checks array.
 export type QtePrompt =
-	{ id: string, mode: "Manual", kind: "Standard" | "HighRiskThreeCheck", checks: { ManualQteCheck }, nextCheckIndex: QteCheckIndex? }
-	| { id: string, mode: "UntimedCue", kind: "HighRiskThreeCheck", checks: { UntimedQteCheck }, nextCheckIndex: QteCheckIndex? }
+	{
+		id: string,
+		mode: "Manual",
+		kind: "Standard" | "HighRiskThreeCheck",
+		checks: { ManualQteCheck },
+		checkResults: { QteCheckResult },
+		nextCheckIndex: QteCheckIndex?,
+	}
+	| {
+		id: string,
+		mode: "UntimedCue",
+		kind: "HighRiskThreeCheck",
+		checks: { UntimedQteCheck },
+		checkResults: { QteCheckResult },
+		nextCheckIndex: QteCheckIndex?,
+	}
 
 export type SandboxLogEvent = {
 	turn: number,
@@ -244,7 +262,9 @@ export type SandboxSnapshot = {
 	actors: { SandboxActorState },
 	turnOrder: { TurnOrderEntry },
 	enemyIntents: { SandboxIntent },
+	-- Options belong to activeActorId.
 	primaryOptions: { PrimaryOption },
+	endTurnLegality: ActionLegality,
 	belt: PartyBelt,
 	companion: CompanionView?,
 	exposure: ExposureView?,

@@ -65,6 +65,7 @@ export type SandboxSecondaryRequest = SandboxBattleRevision & (
 	{ kind: "UseBeltItem", actorId: CombatTypes.ActorId, itemId: CombatTypes.BeltItemId, targetId: CombatTypes.ActorId }
 	| { kind: "SetCompanionTactic", actorId: CombatTypes.ActorId, tacticMode: CombatTypes.TacticMode }
 	| { kind: "CompanionGuardRedirect", actorId: CombatTypes.ActorId, intentId: string, recipientId: CombatTypes.ActorId }
+	| { kind: "EndTurn", actorId: CombatTypes.ActorId }
 )
 
 export type SandboxQteModeRequest = SandboxBattleRevision & { qteMode: CombatTypes.QteMode }
