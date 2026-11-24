@@ -974,8 +974,14 @@ local function snapshotOf(battle: Battle): Snapshot
 		endReason = "Finish the QTE first."
 	elseif not actor then
 		endReason = "Black Sabbath is acting."
-	elseif not battle.regularPrimaryDone and actor.primaryAvailable then
-		endReason = "Use your Primary first."
+	else
+		-- End Turn is only a skip for a fighter with no usable Primary (for
+		-- example Stunned). Otherwise the Primary itself ends the turn.
+		for _, option in primaryOptions(battle) do
+			if option.legality.canUse then
+				endReason = "Taking a Primary ends your turn."
+			end
+		end
 	end
 	local log: { LogEvent } = {}
 	for _, event in battle.log do
@@ -1056,7 +1062,10 @@ local function finishPrimary(battle: Battle, actor: Actor, slot: CombatTypes.Pri
 		battle.regularPrimaryDone = true
 	end
 	actor.bonusPrimaryAvailable = actor.bonusPrimaryAvailable and slot ~= "BonusPrimary"
-	maybeAutoAdvance(battle)
+	-- A Primary ends the turn (after any Bonus Primary it earned).
+	if battle.outcome == "InProgress" and partyActive(battle) == actor and not actor.bonusPrimaryAvailable then
+		advance(battle)
+	end
 end
 
 local function strike(battle: Battle, actor: Actor, moveId: SandboxMoveId, target: Actor, multiplier: number): boolean

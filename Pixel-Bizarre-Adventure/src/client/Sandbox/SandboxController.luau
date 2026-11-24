@@ -6,6 +6,10 @@
 -- SandboxSnapshotChanged event (for example when a Manual QTE window expires),
 -- or GetSandboxSnapshot. An older revision of the same battle is ignored; a new
 -- battle ID replaces everything.
+--
+-- A Primary ends the fighter's turn. If the server has not advanced the turn by
+-- the time that Primary (and its QTE) has resolved, this sends End Turn once on
+-- the player's behalf. A server that ends the turn itself makes this a no-op.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CombatTypes = require(ReplicatedStorage.Shared.Contracts.CombatTypes)
@@ -27,6 +31,9 @@ function SandboxController.run(screenGui: ScreenGui)
 	local snapshot: Snapshot? = nil
 	local busy = false
 	local view: CombatHudV2.CombatHudV2
+	-- Set when a Primary is sent; cleared once that fighter's turn is over.
+	local autoEnd: { battleId: string, actorId: string }? = nil
+	local maybeAutoEnd: (current: Snapshot) -> ()
 
 	local function accept(incoming: Snapshot)
 		local current = snapshot
@@ -35,6 +42,7 @@ function SandboxController.run(screenGui: ScreenGui)
 		end
 		snapshot = incoming
 		view:render(incoming)
+		maybeAutoEnd(incoming)
 	end
 
 	local function apply(response: Response)
@@ -66,6 +74,48 @@ function SandboxController.run(screenGui: ScreenGui)
 		return current.activeActorId or current.playerActorId
 	end
 
+	function maybeAutoEnd(current: Snapshot)
+		local pending = autoEnd
+		if not pending then
+			return
+		end
+		if current.battleId ~= pending.battleId or current.outcome ~= "InProgress" or current.activeActorId ~= pending.actorId then
+			autoEnd = nil -- The turn already moved on (or the fight ended).
+			return
+		end
+		if current.qtePrompt then
+			return -- Still resolving; the QTE's final snapshot comes back here.
+		end
+		for _, actor in current.actors do
+			if actor.id == pending.actorId and (actor.primaryAvailable or actor.bonusPrimaryAvailable) then
+				return -- The Primary was refused, or it earned a Bonus Primary.
+			end
+		end
+		if not current.endTurnLegality.canUse then
+			autoEnd = nil
+			return
+		end
+		if busy then
+			return -- Retried when the in-flight request's snapshot arrives.
+		end
+		autoEnd = nil
+		local battleId, actorId = pending.battleId, pending.actorId
+		task.defer(function()
+			local latest = snapshot
+			if not latest or latest.battleId ~= battleId or latest.activeActorId ~= actorId or latest.qtePrompt then
+				return
+			end
+			request(function(now)
+				return connection.submitSecondary({
+					battleId = now.battleId,
+					expectedRevision = now.revision,
+					kind = "EndTurn",
+					actorId = actorId,
+				})
+			end)
+		end)
+	end
+
 	local function start(settings: RemoteContract.StartSandboxRequest)
 		busy = true
 		view:setBusy(true)
@@ -89,6 +139,10 @@ function SandboxController.run(screenGui: ScreenGui)
 
 	view = CombatHudV2.new(screenGui, {
 		onPrimary = function(option, targetId)
+			local before = snapshot
+			if before and not busy then
+				autoEnd = { battleId = before.battleId, actorId = actingId(before) }
+			end
 			request(function(current)
 				return connection.submitPrimary({
 					battleId = current.battleId,

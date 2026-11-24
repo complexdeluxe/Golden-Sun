@@ -1,26 +1,27 @@
 --!strict
--- Combat HUD v2: the Phase 2 Black Sabbath sandbox screen on the 320 x 180 grid.
+-- Combat HUD v2 (compact layout): the Phase 2 Black Sabbath sandbox screen on
+-- the 320 x 180 grid, following the compact "big arena + bottom dock" concept.
 --
 -- Like the tutorial screen, it only shows what the server's SandboxSnapshot
 -- says and reports presses through callbacks. It never decides damage, odds,
 -- legality or turn order itself.
 --
 -- Layout (native pixels):
---   row 1 (y 2)    turn + Speed queue, NIGHT stage tag, Black Sabbath step,
---                  QTE mode toggle (Manual / Auto-Good / Untimed Cue)
---   row 2 (y 16)   latest log line (tap for the full log), MOCK badge
---   middle         You, the companion and Black Sabbath on 96 x 96 canvases
---                  (feet at y 120). Each plate shows name, HP, Stamina, a
---                  Resolve bar and status chips. Callouts under the plate show
---                  TARGETED, BOOSTED HIT, ON FIRE, FINISHER and GUARD.
---                  Black Sabbath's intent badge sits to its left, with the
---                  Fade (+20 Dodge) badge under it.
---   bottom-left    Primary/Secondary/Bonus slots, six move buttons with scaling
---                  tag and Stamina cost, an info line and END TURN
---   bottom-middle  shared belt: charges, direct heals, Med-Kit lock, 8 items
---   bottom-right   companion: HP/Guard, tactic switcher, assist, Guard Redirect
---   overlays       QTE bar, item and redirect pickers, full log, Night banner,
---                  hit feedback, outcome banner, toast
+--   arena (y 0-126)  stage, fighters on 96 x 96 canvases (feet at y 118) with
+--                    small plates (name, HP, Stamina, Resolve, statuses) and
+--                    callouts (TARGETED, BOOSTED HIT, EXPOSED, ON FIRE,
+--                    FINISHER, GUARD). Top-left: stage + turn and the Black
+--                    Sabbath step. Top-centre: one intent banner (plus Fade).
+--                    Top-right: MOCK badge and LOG. The QTE (contracting ring
+--                    or untimed cue) renders in the middle of the arena.
+--   dock (y 127-180) left: ATTACK / SKILLS / GUARD / BELT and the QTE mode.
+--                    centre: detail for the chosen entry, the skill list, the
+--                    belt or Guard Redirect targets. No pop-ups.
+--                    right: PARTY / FOES tabs (tactics and Redirect on PARTY).
+--
+-- There is no End Turn button: a Primary (ATTACK, a SKILL or GUARD) ends the
+-- turn. Belt items and the companion's Secondary come first. A fighter with no
+-- usable Primary (for example Stunned) gets SKIP TURN in place of GUARD.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -40,7 +41,6 @@ type QteInput = CombatTypes.QteInput
 type QteSubmissionInput = CombatTypes.QteSubmissionInput
 type QteMode = CombatTypes.QteMode
 type TacticMode = CombatTypes.TacticMode
-type StatusId = CombatTypes.StatusId
 type Legality = CombatTypes.ActionLegality
 
 local Colors = PixelUi.Colors
@@ -55,10 +55,15 @@ local Night = {
 	Tag = Color3.fromHex("#5b3f9e"),
 	Shadow = Color3.fromHex("#7a4fd6"),
 	Fire = Color3.fromHex("#ff7a1f"),
-	Resolve = Color3.fromHex("#f08c2e"),
-	ResolveBack = Color3.fromHex("#4a2c14"),
+	Resolve = Color3.fromHex("#e0559e"),
+	ResolveBack = Color3.fromHex("#40182e"),
 	Removable = Color3.fromHex("#7fe08a"),
 	Miss = Color3.fromHex("#e0463c"),
+	Dock = Color3.fromHex("#16122a"),
+	DockEdge = Color3.fromHex("#7a4fd6"),
+	Select = Color3.fromHex("#3a2a6e"),
+	Banner = Color3.fromHex("#2a1420"),
+	Gold = Color3.fromHex("#d9a441"),
 }
 
 export type Callbacks = {
@@ -85,6 +90,7 @@ type FighterView = {
 	sprite: Frame,
 	aura: Frame,
 	flash: Frame,
+	marker: Frame,
 	plateOutline: Frame,
 	nameLabel: TextLabel,
 	setHp: (number) -> (),
@@ -97,36 +103,53 @@ type FighterView = {
 	callouts: Frame,
 }
 
-type MoveButton = {
-	box: Frame,
-	fill: Frame,
-	title: TextLabel,
-	tag: TextLabel,
-	cost: TextLabel,
-	button: TextButton,
-}
+type Row = { box: Frame, fill: Frame, cells: { TextLabel }, button: TextButton }
 
-local FEET_Y = 120
-local PLATE_W = 64
-local MAX_MOVES = 6
-local FULL_LOG_LINES = 15
+-- Arena and dock.
+local ARENA_H = 126
+local DOCK_Y = 127
+local DOCK_H = PixelUi.NATIVE_HEIGHT - DOCK_Y
+local FEET_Y = 118
+local PLATE_W = 50
+local PARTY_SLOTS_X = { 18, 70 }
+local ENEMY_SLOT_X = 206
+local FULL_LOG_LINES = 11
 local QTE_CHOICES: { QteInput } = { "Left", "Center", "Right" }
+
 -- Manual ring, in native pixels. The approach ring shrinks from RING_START to
 -- RING_TARGET between approachStartsAtServerTime and overlapAtServerTime.
-local RING_TARGET = 16
-local RING_START = 50
+local RING_TARGET = 20
+local RING_START = 60
 local RING_MIN = 4
 
-local PARTY_SLOTS_X = { 2, 70 }
-local ENEMY_SLOT_X = 214
+-- Dock panes.
+local MENU_W = 66
+local CENTER_X = 67
+local CENTER_W = 160
+local RIGHT_X = 228
+local RIGHT_W = 92
+local SKILL_ROWS = 4
+local TARGET_ROWS = 3
 
-local MOVE_SHORT: { [string]: string } = {
-	BasicStrike = "BASIC",
-	HeavyStrike = "HEAVY",
-	HighRiskHeavy = "HI-RISK",
-	Defend = "DEFEND",
-	HamonInterrupt = "INTERRUPT",
+type MenuEntry = "Attack" | "Skills" | "Guard" | "Belt"
+local MENU_ORDER: { MenuEntry } = { "Attack", "Skills", "Guard", "Belt" }
+
+local MOVE_NAME: { [string]: string } = {
+	BasicStrike = "QUICK STRIKE",
+	HeavyStrike = "HEAVY STRIKE",
+	HighRiskHeavy = "HIGH-RISK HEAVY",
+	Defend = "GUARD",
+	HamonInterrupt = "HAMON INTERRUPT",
 	Finisher = "FINISHER",
+}
+
+local MOVE_BLURB: { [string]: string } = {
+	BasicStrike = "A quick hit with your Stand or martial arts. Taking a Primary ends your turn.",
+	HeavyStrike = "1.5x heavy hit with a timing check.",
+	HighRiskHeavy = "3-check timing attack. 3/3 hits hardest.",
+	Defend = "Brace until your next turn: take less damage, regain 1 Stamina. Ends your turn.",
+	HamonInterrupt = "Breaks a Shadow Grab windup and Exposes Black Sabbath.",
+	Finisher = "Spend Fire for a huge hit. Needs 100 Resolve.",
 }
 
 local TAG_SHORT: { [string]: string } = {
@@ -134,13 +157,6 @@ local TAG_SHORT: { [string]: string } = {
 	Special = "[SPC]",
 	Hybrid = "[HYB]",
 	AutoBest = "[AUTO]",
-}
-
-local TAG_LONG: { [string]: string } = {
-	Physical = "[Physical]",
-	Special = "[Special]",
-	Hybrid = "[Hybrid]",
-	AutoBest = "[AutoBest]",
 }
 
 local STATUS_SHORT: { [string]: string } = {
@@ -176,9 +192,9 @@ local STEP_TEXT: { [string]: string } = {
 }
 
 local QTE_MODE_TEXT: { [string]: string } = {
-	Manual = "QTE MANUAL",
-	AutoGood = "QTE AUTO",
-	UntimedCue = "QTE CUE",
+	Manual = "MANUAL",
+	AutoGood = "AUTO",
+	UntimedCue = "CUE",
 }
 local QTE_MODE_ORDER: { QteMode } = { "Manual", "AutoGood", "UntimedCue" }
 local TACTICS: { TacticMode } = { "Aggressive", "Defensive", "Support" }
@@ -189,10 +205,12 @@ local UV_TOOLTIP = "Guaranteed Shadow Cancel Only. Does NOT apply Exposure."
 local CombatHudV2 = {}
 
 local function reasonOf(legality: Legality): string
-	return if legality.canUse then "" else legality.disabledReason or ""
+	if legality.canUse then
+		return ""
+	end
+	return legality.disabledReason
 end
 
--- A small ink-outlined chip with centred text.
 local function chip(parent: Instance, name: string, x: number, y: number, w: number, h: number, text: string, color: Color3, textColor: Color3?)
 	local outline, fill = PixelUi.box(parent, name, x, y, w, h, color)
 	local label = PixelUi.label(fill, "Text", 0, 0, w - 2, h - 2, text, textColor or Colors.Text, Enum.TextXAlignment.Center)
@@ -202,14 +220,14 @@ end
 local function drawPlaceholderNight(parent: Frame, night: boolean)
 	local sky = if night then Night.Sky else Colors.Sky
 	local stage = PixelUi.frame(parent, "Stage", 0, 0, PixelUi.NATIVE_WIDTH, PixelUi.NATIVE_HEIGHT, sky)
-	PixelUi.frame(stage, "SkyLow", 0, 60, PixelUi.NATIVE_WIDTH, FEET_Y - 60, if night then Night.SkyLow else Colors.SkyLow)
+	PixelUi.frame(stage, "SkyLow", 0, 56, PixelUi.NATIVE_WIDTH, FEET_Y - 56, if night then Night.SkyLow else Colors.SkyLow)
 	if night then
-		PixelUi.frame(stage, "Moon", 280, 30, 12, 12, Night.Moon)
-		PixelUi.frame(stage, "MoonBite", 284, 28, 10, 10, sky)
+		PixelUi.frame(stage, "Moon", 276, 30, 12, 12, Night.Moon)
+		PixelUi.frame(stage, "MoonBite", 280, 28, 10, 10, sky)
 	end
 	-- Fixed skyline so the placeholder stays pixel-stable.
-	local skyline = { { 0, 70, 30 }, { 32, 84, 22 }, { 56, 64, 26 }, { 86, 80, 20 }, { 108, 74, 34 }, { 144, 88, 18 },
-		{ 164, 68, 28 }, { 194, 82, 24 }, { 220, 72, 30 }, { 252, 86, 20 }, { 274, 66, 26 }, { 302, 78, 18 } }
+	local skyline = { { 0, 66, 30 }, { 32, 80, 22 }, { 56, 60, 26 }, { 86, 76, 20 }, { 108, 70, 34 }, { 144, 84, 18 },
+		{ 164, 64, 28 }, { 194, 78, 24 }, { 220, 68, 30 }, { 252, 82, 20 }, { 274, 62, 26 }, { 302, 74, 18 } }
 	for index, block in skyline do
 		local x, top, w = block[1], block[2], block[3]
 		PixelUi.frame(stage, `Building{index}`, x, top, w, FEET_Y - top, Night.Building)
@@ -218,7 +236,7 @@ local function drawPlaceholderNight(parent: Frame, night: boolean)
 		end
 	end
 	PixelUi.frame(stage, "FloorEdge", 0, FEET_Y, PixelUi.NATIVE_WIDTH, 2, Night.FloorEdge)
-	PixelUi.frame(stage, "Floor", 0, FEET_Y + 2, PixelUi.NATIVE_WIDTH, PixelUi.NATIVE_HEIGHT - FEET_Y - 2, Night.Floor)
+	PixelUi.frame(stage, "Floor", 0, FEET_Y + 2, PixelUi.NATIVE_WIDTH, ARENA_H - FEET_Y - 2, Night.Floor)
 	return stage
 end
 
@@ -228,129 +246,175 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 
 	local stageLayer = PixelUi.frame(root, "StageLayer", 0, 0, PixelUi.NATIVE_WIDTH, PixelUi.NATIVE_HEIGHT)
 	local stageNight: boolean? = nil
-	local fighterLayer = PixelUi.frame(root, "Fighters", 0, 0, PixelUi.NATIVE_WIDTH, PixelUi.NATIVE_HEIGHT)
+	local fighterLayer = PixelUi.frame(root, "Fighters", 0, 0, PixelUi.NATIVE_WIDTH, ARENA_H)
+	fighterLayer.ClipsDescendants = true
 	local hud = PixelUi.frame(root, "Hud", 0, 0, PixelUi.NATIVE_WIDTH, PixelUi.NATIVE_HEIGHT)
 	hud.ZIndex = 2
 
-	-- Row 1: queue, stage tag, Black Sabbath step, QTE mode --------------------
-	local queuePanel = PixelUi.box(hud, "TurnQueue", 2, 2, 146, 13, Colors.Panel)
-	local turnLabel = PixelUi.label(queuePanel, "Turn", 2, 1, 20, 11, "T1", Colors.Text)
-	local queueChips: { Frame } = {}
-
-	local stageTagBox, stageTagFill, stageTagLabel = chip(hud, "StageTag", 150, 2, 36, 13, "NIGHT", Night.Tag)
-	local stepBox, stepFill, stepLabel = chip(hud, "SabbathStep", 188, 2, 74, 13, "", Colors.Panel)
-	local qteModeBox, qteModeFill, qteModeLabel = chip(hud, "QteMode", 264, 2, 54, 13, "QTE MANUAL", Colors.Button)
-	local qteModeButton = PixelUi.button(qteModeBox, "Press", 0, 0, 54, 13, "")
-	local _ = stageTagBox
+	-- Arena corners -----------------------------------------------------------------
+	local stageBox, stageFill, stageLabel = chip(hud, "StageTag", 2, 2, 72, 11, "NIGHT - TURN 1", Night.Tag)
+	local stepBox, stepFill, stepLabel = chip(hud, "SabbathStep", 2, 14, 72, 10, "", Colors.Panel)
+	local mockBadge = chip(hud, "ServerBadge", 250, 2, 34, 11, "MOCK", Colors.Mock, Colors.Ink)
+	mockBadge.Visible = false
+	local logBox = chip(hud, "LogButton", 286, 2, 32, 11, "LOG", Colors.Panel)
+	local logButton = PixelUi.button(logBox, "Press", 0, 0, 32, 11, "")
+	local _ = stageBox
 	local _ = stepBox
 
-	-- Row 2: latest log line + server badge -------------------------------------
-	local logStrip = PixelUi.box(hud, "LogStrip", 2, 16, 280, 11, Colors.Panel)
-	local logLine = PixelUi.label(logStrip, "Line", 3, 0, 274, 11, "", Colors.Text)
-	local logButton = PixelUi.button(logStrip, "OpenFullLog", 0, 0, 280, 11, "")
-	local mockBadge = chip(hud, "ServerBadge", 284, 16, 34, 11, "MOCK", Colors.Mock, Colors.Ink)
-	mockBadge.Visible = false
-
-	-- Black Sabbath intent + Fade badges (positioned in render) -----------------
-	local intentBox, intentFill = PixelUi.box(hud, "SabbathIntent", 151, 29, 76, 38, Colors.Panel)
-	local intentLine1 = PixelUi.label(intentFill, "Move", 1, 0, 73, 9, "", Colors.Heavy)
-	local intentLine2 = PixelUi.label(intentFill, "Target", 1, 9, 73, 9, "", Colors.Text)
-	local intentLine3 = PixelUi.label(intentFill, "Power", 1, 18, 73, 9, "", Colors.Text)
-	local intentLine4 = PixelUi.label(intentFill, "Stage", 1, 27, 73, 9, "", Colors.TextDim)
+	-- One intent banner, top centre, gold trim ---------------------------------------
+	local intentBox, intentFill = PixelUi.box(hud, "SabbathIntent", 82, 3, 156, 21, Night.Banner)
+	intentBox.BackgroundColor3 = Night.Gold
+	local intentIcon = chip(intentFill, "Icon", 2, 2, 13, 15, "!", Colors.Heavy)
+	local intentLine1 = PixelUi.label(intentFill, "Move", 17, 1, 136, 9, "", Colors.Victory)
+	local intentLine2 = PixelUi.label(intentFill, "Detail", 17, 10, 136, 9, "", Colors.Text)
+	local _ = intentIcon
 	intentBox.Visible = false
-	local fadeBox, fadeFill = PixelUi.box(hud, "FadeBadge", 151, 69, 76, 20, Night.Shadow)
-	PixelUi.label(fadeFill, "Title", 0, 0, 74, 9, "FADE +20 DODGE", Colors.Text, Enum.TextXAlignment.Center)
-	local fadeLabel = PixelUi.label(fadeFill, "Turns", 0, 9, 74, 9, "", Night.Moon, Enum.TextXAlignment.Center)
+	local fadeBox, _fadeFill, fadeLabel = chip(hud, "FadeBadge", 150, 25, 76, 10, "", Night.Shadow)
 	fadeBox.Visible = false
 
-	-- Bottom-left: action panel -------------------------------------------------
-	local actionPanel, actionFill = PixelUi.box(hud, "Actions", 2, 122, 160, 56, Colors.Panel)
-	local actorLabel = PixelUi.label(actionFill, "Actor", 2, 0, 56, 10, "", Colors.Active)
-	local priChip, priFill, priLabel = chip(actionFill, "PrimarySlot", 60, 1, 22, 9, "PRI", Colors.PanelLight)
-	local secChip, secFill, secLabel = chip(actionFill, "SecondarySlot", 83, 1, 22, 9, "SEC", Colors.PanelLight)
-	local bonusChip, bonusFill, bonusLabel = chip(actionFill, "BonusSlot", 106, 1, 34, 9, "BONUS", Colors.PanelLight)
-	local _ = priChip
-	local _ = secChip
-	local _ = bonusChip
-	local moveButtons: { MoveButton } = {}
-	local infoLine = PixelUi.label(actionFill, "Info", 2, 43, 104, 11, "", Colors.TextDim)
-	local endBox, endFill, endLabel = chip(actionFill, "EndTurn", 107, 42, 50, 12, "END TURN", Colors.Button)
-	local endButton = PixelUi.button(endBox, "Press", 0, 0, 50, 12, "")
-	local _ = actionPanel
+	-- Dock -------------------------------------------------------------------------
+	local dock = PixelUi.frame(hud, "Dock", 0, DOCK_Y - 1, PixelUi.NATIVE_WIDTH, DOCK_H + 1, Night.DockEdge)
+	local menuPanel, menuFill = PixelUi.box(dock, "Menu", 0, 1, MENU_W, DOCK_H, Night.Dock)
+	local centerPanel, centerFill = PixelUi.box(dock, "Center", CENTER_X, 1, CENTER_W, DOCK_H, Night.Dock)
+	local rightPanel, rightFill = PixelUi.box(dock, "Side", RIGHT_X, 1, RIGHT_W, DOCK_H, Night.Dock)
+	local _ = menuPanel
+	local _ = centerPanel
+	local _ = rightPanel
 
-	-- Bottom-middle: party belt ------------------------------------------------
-	local beltPanel, beltFill = PixelUi.box(hud, "Belt", 164, 122, 80, 56, Colors.Panel)
-	local beltCharges = PixelUi.label(beltFill, "Charges", 2, 0, 76, 9, "BELT 3/3", Colors.Text)
-	local beltHeals = PixelUi.label(beltFill, "Heals", 2, 8, 44, 9, "HEAL 2/2", Colors.TextDim)
-	local beltKit = PixelUi.label(beltFill, "MedKit", 44, 8, 32, 9, "KIT 1", Colors.TextDim, Enum.TextXAlignment.Right)
-	local beltTiles: { { box: Frame, fill: Frame, icon: ImageLabel, code: TextLabel, stock: TextLabel, button: TextButton } } = {}
-	local _ = beltPanel
-
-	-- Bottom-right: companion --------------------------------------------------
-	local companionPanel, companionFill = PixelUi.box(hud, "Companion", 246, 122, 72, 56, Colors.Panel)
-	local companionName = PixelUi.label(companionFill, "Name", 2, 0, 68, 9, "COMPANION", Colors.TextDim)
-	local companionHp = PixelUi.label(companionFill, "Hp", 2, 8, 44, 9, "", Colors.Text)
-	local companionGuard = chip(companionFill, "Guard", 46, 8, 22, 9, "GRD", Colors.Guard, Colors.Ink)
-	companionGuard.Visible = false
-	local tacticButtons: { [TacticMode]: { fill: Frame, label: TextLabel, button: TextButton } } = {}
-	local assistLabel = PixelUi.label(companionFill, "Assist", 2, 30, 68, 9, "", Colors.TextDim)
-	local redirectBox, redirectFill, redirectLabel = chip(companionFill, "Redirect", 1, 40, 68, 13, "REDIRECT 1/1", Colors.Button)
-	local redirectButton = PixelUi.button(redirectBox, "Press", 0, 0, 68, 13, "")
-	local _ = companionPanel
-
-	-- Overlays -----------------------------------------------------------------
-	local fullLog = PixelUi.box(hud, "FullLog", 20, 20, 280, 150, Colors.Panel)
-	fullLog.ZIndex = 8
-	fullLog.Visible = false
-	PixelUi.label(fullLog, "Title", 6, 3, 200, 10, "COMBAT LOG  (TAP TO CLOSE)", Colors.Victory)
-	local fullLogLines: { TextLabel } = {}
-	for i = 1, FULL_LOG_LINES do
-		table.insert(fullLogLines, PixelUi.label(fullLog, `Line{i}`, 6, 14 + (i - 1) * 9, 268, 9, "", Colors.Text))
+	-- Left: who is acting, the four entries, QTE mode.
+	local actorLabel = PixelUi.label(menuFill, "Actor", 2, 0, 36, 9, "", Colors.Active)
+	local staLabel = PixelUi.label(menuFill, "Stamina", 30, 0, 32, 9, "", Colors.Guard, Enum.TextXAlignment.Right)
+	type MenuView = { fill: Frame, label: TextLabel, extra: TextLabel, button: TextButton }
+	local menuViews: { [MenuEntry]: MenuView } = {}
+	for i, entry in MENU_ORDER do
+		local outline, fill = PixelUi.box(menuFill, entry, 1, 9 + (i - 1) * 9, MENU_W - 4, 9, Night.Dock)
+		outline.BackgroundColor3 = Night.Dock
+		local label = PixelUi.label(fill, "Text", 1, 0, 58, 7, "", Colors.Text)
+		local extra = PixelUi.label(fill, "Extra", 40, 0, 20, 7, "", Colors.TextDim, Enum.TextXAlignment.Right)
+		local button = PixelUi.button(outline, "Press", 0, 0, MENU_W - 4, 9, "")
+		menuViews[entry] = { fill = fill, label = label, extra = extra, button = button }
 	end
-	local closeLog = PixelUi.button(fullLog, "Close", 0, 0, 280, 150, "")
+	local qteModeLabel = PixelUi.label(menuFill, "QteMode", 2, 45, 60, 7, "QTE: MANUAL", Colors.TextDim)
+	local qteModeButton = PixelUi.button(menuFill, "QteModePress", 0, 45, MENU_W - 2, 6, "")
 
-	-- Picker popup for belt items and Guard Redirect.
-	local picker, pickerFill = PixelUi.box(hud, "Picker", 30, 30, 260, 118, Colors.Panel)
-	picker.ZIndex = 7
-	picker.Visible = false
-	local pickerTitle = PixelUi.label(pickerFill, "Title", 4, 2, 220, 10, "", Colors.Victory)
-	local pickerSub = PixelUi.label(pickerFill, "Subtitle", 4, 12, 250, 9, "", Colors.TextDim)
-	local pickerTip = PixelUi.label(pickerFill, "Tooltip", 4, 21, 250, 18, "", Colors.Victory)
-	pickerTip.TextWrapped = true
-	pickerTip.TextYAlignment = Enum.TextYAlignment.Top
-	local pickerClose = chip(pickerFill, "Close", 238, 2, 18, 11, "X", Colors.Defeat)
-	local pickerCloseButton = PixelUi.button(pickerClose, "Press", 0, 0, 18, 11, "")
-	type PickerRow = { box: Frame, name: TextLabel, detail: TextLabel, useBox: Frame, useFill: Frame, useLabel: TextLabel, use: TextButton }
-	local pickerRows: { PickerRow } = {}
-	for i = 1, 3 do
-		local y = 42 + (i - 1) * 24
-		local box = PixelUi.box(pickerFill, `Row{i}`, 3, y, 252, 22, Colors.PanelLight)
-		local name = PixelUi.label(box, "Name", 3, 1, 196, 10, "", Colors.Text)
-		local detail = PixelUi.label(box, "Detail", 3, 11, 196, 10, "", Colors.TextDim)
-		local useBox, useFill, useLabel = chip(box, "Use", 202, 4, 46, 14, "USE", Colors.Button)
-		local use = PixelUi.button(useBox, "Press", 0, 0, 46, 14, "")
-		table.insert(pickerRows, { box = box, name = name, detail = detail, useBox = useBox, useFill = useFill, useLabel = useLabel, use = use })
+	-- Centre: header + body. Body content is one of: detail, skill list, belt grid,
+	-- target rows (belt item or Guard Redirect).
+	local centerTitle = PixelUi.label(centerFill, "Title", 2, 0, 70, 9, "", Colors.Victory)
+	local centerTag = PixelUi.label(centerFill, "Tag", 72, 0, 84, 9, "", Colors.Active, Enum.TextXAlignment.Right)
+
+	local detailBody = PixelUi.frame(centerFill, "Detail", 0, 9, CENTER_W - 2, DOCK_H - 11)
+	local detailText = PixelUi.label(detailBody, "Text", 2, 0, CENTER_W - 6, 17, "", Colors.Text)
+	detailText.TextWrapped = true
+	detailText.TextYAlignment = Enum.TextYAlignment.Top
+	detailText.TextTruncate = Enum.TextTruncate.None
+	local detailOdds = PixelUi.label(detailBody, "Odds", 2, 18, CENTER_W - 6, 8, "", Colors.TextDim)
+	local warnBox, warnFill, warnLabel = chip(detailBody, "Warning", 1, 30, 108, 10, "", Night.Banner, Colors.Heavy)
+	warnBox.BackgroundColor3 = Colors.Heavy
+	local useBox, useFill, useLabel = chip(detailBody, "Use", 112, 30, 44, 10, "USE >", Colors.Button)
+	local useButton = PixelUi.button(useBox, "Press", 0, 0, 44, 10, "")
+	local _ = warnFill
+
+	local function makeRow(parent: Instance, name: string, y: number, widths: { number }): Row
+		local box, fill = PixelUi.box(parent, name, 1, y, CENTER_W - 4, 10, Night.Dock)
+		box.BackgroundColor3 = Night.Dock
+		local cells: { TextLabel } = {}
+		local x = 2
+		for i, w in widths do
+			table.insert(cells, PixelUi.label(fill, `Cell{i}`, x, 0, w, 8, "", Colors.Text))
+			x += w
+		end
+		local button = PixelUi.button(box, "Press", 0, 0, CENTER_W - 4, 10, "")
+		return { box = box, fill = fill, cells = cells, button = button }
 	end
 
-	-- QTE panel.
-	local qtePanel, qteFill = PixelUi.box(hud, "Qte", 50, 40, 220, 76, Colors.Panel)
+	local skillsBody = PixelUi.frame(centerFill, "Skills", 0, 9, CENTER_W - 2, DOCK_H - 11)
+	local skillRows: { Row } = {}
+	for i = 1, SKILL_ROWS do
+		-- name | cost | tag | note
+		table.insert(skillRows, makeRow(skillsBody, `Skill{i}`, (i - 1) * 10, { 66, 20, 26, 40 }))
+	end
+
+	local beltBody = PixelUi.frame(centerFill, "Belt", 0, 9, CENTER_W - 2, DOCK_H - 11)
+	type Tile = { box: Frame, fill: Frame, icon: ImageLabel, code: TextLabel, stock: TextLabel, button: TextButton }
+	local beltTiles: { Tile } = {}
+	for i = 1, 8 do
+		local col = (i - 1) % 4
+		local row = (i - 1) // 4
+		local box, fill = PixelUi.box(beltBody, `Item{i}`, 1 + col * 39, row * 20, 38, 19, Colors.PanelLight)
+		local icon = PixelUi.image(fill, "Icon", 1, 1, 15, 15, PixelUi.UNSET_ASSET)
+		local code = PixelUi.label(fill, "Code", 0, 0, 36, 9, "", Colors.Text, Enum.TextXAlignment.Center)
+		local stock = PixelUi.label(fill, "Stock", 0, 8, 36, 9, "", Colors.Stamina, Enum.TextXAlignment.Center)
+		local button = PixelUi.button(box, "Press", 0, 0, 38, 19, "")
+		beltTiles[i] = { box = box, fill = fill, icon = icon, code = code, stock = stock, button = button }
+	end
+
+	local targetBody = PixelUi.frame(centerFill, "Targets", 0, 9, CENTER_W - 2, DOCK_H - 11)
+	local targetTip = PixelUi.label(targetBody, "Tip", 2, 0, CENTER_W - 6, 9, "", Colors.Victory)
+	local targetRows: { Row } = {}
+	for i = 1, TARGET_ROWS do
+		-- who + effect | ready or reason
+		table.insert(targetRows, makeRow(targetBody, `Target{i}`, 9 + (i - 1) * 10, { 100, 52 }))
+	end
+	local backBox = chip(targetBody, "Back", CENTER_W - 36, -9, 32, 9, "BACK", Colors.PanelLight)
+	local backButton = PixelUi.button(backBox, "Press", 0, 0, 32, 9, "")
+
+	-- Right: PARTY / FOES tabs.
+	local partyTabBox, partyTabFill, partyTabLabel = chip(rightFill, "PartyTab", 1, 1, 44, 9, "PARTY", Colors.PanelLight)
+	local foesTabBox, foesTabFill, foesTabLabel = chip(rightFill, "FoesTab", 45, 1, 44, 9, "FOES", Colors.PanelLight)
+	local partyTabButton = PixelUi.button(partyTabBox, "Press", 0, 0, 44, 9, "")
+	local foesTabButton = PixelUi.button(foesTabBox, "Press", 0, 0, 44, 9, "")
+
+	local foesBody = PixelUi.frame(rightFill, "Foes", 0, 11, RIGHT_W - 2, DOCK_H - 13)
+	local foeName = PixelUi.label(foesBody, "Name", 2, 0, 86, 8, "", Colors.Text)
+	local foeLevel = PixelUi.label(foesBody, "Level", 60, 0, 28, 8, "", Colors.TextDim, Enum.TextXAlignment.Right)
+	local foeHpOuter, setFoeHp = PixelUi.bar(foesBody, "Hp", 2, 8, 86, 4, Colors.Hp, Colors.HpBack)
+	local foeHpText = PixelUi.label(foesBody, "HpText", 2, 12, 86, 8, "", Colors.Text, Enum.TextXAlignment.Right)
+	local foeStatus = PixelUi.label(foesBody, "Status", 2, 12, 60, 8, "", Colors.TextDim)
+	local nextBox, nextFill = PixelUi.box(foesBody, "Next", 1, 21, 88, 19, Night.Banner)
+	nextBox.BackgroundColor3 = Colors.Heavy
+	local nextLine1 = PixelUi.label(nextFill, "Line1", 1, 0, 84, 9, "", Colors.Heavy)
+	local nextLine2 = PixelUi.label(nextFill, "Line2", 1, 8, 84, 9, "", Colors.Text)
+	local _ = foeHpOuter
+
+	local partyBody = PixelUi.frame(rightFill, "Party", 0, 11, RIGHT_W - 2, DOCK_H - 13)
+	type PartyView = { name: TextLabel, hp: TextLabel, setHp: (number) -> () }
+	local partyViews: { PartyView } = {}
+	for i = 1, 2 do
+		local y = (i - 1) * 12
+		local name = PixelUi.label(partyBody, `Name{i}`, 2, y, 64, 8, "", Colors.Text)
+		local hp = PixelUi.label(partyBody, `Hp{i}`, 62, y, 26, 8, "", Colors.TextDim, Enum.TextXAlignment.Right)
+		local _outer, setHp = PixelUi.bar(partyBody, `HpBar{i}`, 2, y + 8, 86, 3, Colors.Active, Colors.HpBack)
+		table.insert(partyViews, { name = name, hp = hp, setHp = setHp })
+	end
+	type TacticView = { fill: Frame, label: TextLabel, button: TextButton }
+	local tacticButtons: { [TacticMode]: TacticView } = {}
+	for i, mode in TACTICS do
+		local box, fill, label = chip(partyBody, mode, 1 + (i - 1) * 30, 24, 29, 9, TACTIC_SHORT[mode], Colors.PanelLight)
+		local button = PixelUi.button(box, "Press", 0, 0, 29, 9, "")
+		tacticButtons[mode] = { fill = fill, label = label, button = button }
+	end
+	local redirectBox, redirectFill, redirectLabel = chip(partyBody, "Redirect", 1, 33, 88, 9, "SEC: REDIRECT 1/1", Night.Select)
+	local redirectButton = PixelUi.button(redirectBox, "Press", 0, 0, 88, 9, "")
+
+	-- QTE, dead centre of the arena -------------------------------------------------
+	local qtePanel, qteFill = PixelUi.box(hud, "Qte", 60, 30, 200, 84, Colors.Panel)
+	qtePanel.BackgroundColor3 = Night.Gold
 	qtePanel.ZIndex = 6
 	qtePanel.Visible = false
-	local qteTitle = PixelUi.label(qteFill, "Title", 4, 2, 210, 10, "", Colors.Victory, Enum.TextXAlignment.Center)
-	local qteModeHint = PixelUi.label(qteFill, "Mode", 4, 11, 210, 9, "", Colors.TextDim, Enum.TextXAlignment.Center)
+	local qteTitle = PixelUi.label(qteFill, "Title", 4, 1, 190, 9, "", Colors.Victory, Enum.TextXAlignment.Center)
+	local qteModeHint = PixelUi.label(qteFill, "Mode", 4, 10, 190, 9, "", Colors.TextDim, Enum.TextXAlignment.Center)
 	type CheckBox = { outline: Frame, fill: Frame, label: TextLabel }
 	local qteChecks: { CheckBox } = {}
 	for i = 1, 3 do
 		local outline, fill, label = chip(qteFill, `Check{i}`, 0, 21, 38, 13, `{i}`, Colors.PanelLight)
 		table.insert(qteChecks, { outline = outline, fill = fill, label = label })
 	end
-	local qtePromptLabel = PixelUi.label(qteFill, "Prompt", 4, 35, 210, 10, "", Colors.Text, Enum.TextXAlignment.Center)
-	local qteTimerOuter, setQteTimer = PixelUi.bar(qteFill, "Timer", 30, 46, 158, 6, Colors.Active, Colors.PanelLight)
+	local qtePromptLabel = PixelUi.label(qteFill, "Prompt", 4, 37, 190, 10, "", Colors.Text, Enum.TextXAlignment.Center)
 	type ChoiceButton = { box: Frame, fill: Frame, label: TextLabel, button: TextButton }
 	local qteChoiceButtons: { ChoiceButton } = {}
 	for i, input in QTE_CHOICES do
-		local box, fill, label = chip(qteFill, input, 8 + (i - 1) * 70, 55, 64, 16, string.upper(input), Colors.Button)
-		local button = PixelUi.button(box, "Press", 0, 0, 64, 16, "")
+		local box, fill, label = chip(qteFill, input, 6 + (i - 1) * 63, 58, 60, 18, string.upper(input), Colors.Button)
+		local button = PixelUi.button(box, "Press", 0, 0, 60, 18, "")
 		table.insert(qteChoiceButtons, { box = box, fill = fill, label = label, button = button })
 	end
 
@@ -368,14 +432,15 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		stroke.Parent = ring
 		return ring, stroke
 	end
-	local ringArea = PixelUi.frame(qteFill, "Ring", 134, 20, 82, 54)
+	local ringArea = PixelUi.frame(qteFill, "Ring", 59, 19, 80, 62)
 	ringArea.ClipsDescendants = true
 	local ringTarget, ringTargetStroke = circle(ringArea, "Target", Colors.Text)
-	ringTarget.Position = UDim2.fromOffset(41, 27)
+	ringTarget.Position = UDim2.fromOffset(40, 31)
 	local ringApproach, ringApproachStroke = circle(ringArea, "Approach", Colors.Victory)
-	ringApproach.Position = UDim2.fromOffset(41, 27)
+	ringApproach.Position = UDim2.fromOffset(40, 31)
 	ringApproachStroke.Thickness = 2
-	local ringHint = PixelUi.label(qteFill, "RingHint", 4, 54, 128, 10, "", Colors.TextDim)
+	local ringCount = PixelUi.label(qteFill, "RingCount", 142, 30, 54, 9, "", Colors.Text)
+	local ringHint = PixelUi.label(qteFill, "RingHint", 142, 44, 54, 9, "", Colors.TextDim)
 
 	-- While a Manual ring is up, this invisible layer takes every click or tap
 	-- on the HUD so it counts as one Confirm instead of pressing a button.
@@ -383,19 +448,29 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 	confirmCatcher.ZIndex = 9
 	confirmCatcher.Visible = false
 
-	-- Night banner, feedback pop, outcome banner, toast.
-	local nightBanner, _nightFill = PixelUi.box(hud, "NightBanner", 60, 56, 200, 30, Night.Tag)
+	-- Arena overlays ----------------------------------------------------------------
+	local fullLog = PixelUi.box(hud, "FullLog", 20, 16, 280, 108, Colors.Panel)
+	fullLog.ZIndex = 8
+	fullLog.Visible = false
+	PixelUi.label(fullLog, "Title", 6, 2, 200, 9, "COMBAT LOG  (TAP TO CLOSE)", Colors.Victory)
+	local fullLogLines: { TextLabel } = {}
+	for i = 1, FULL_LOG_LINES do
+		table.insert(fullLogLines, PixelUi.label(fullLog, `Line{i}`, 6, 11 + (i - 1) * 8, 268, 8, "", Colors.Text))
+	end
+	local closeLog = PixelUi.button(fullLog, "Close", 0, 0, 280, 108, "")
+
+	local nightBanner = PixelUi.box(hud, "NightBanner", 60, 46, 200, 30, Night.Tag)
 	nightBanner.ZIndex = 5
 	nightBanner.Visible = false
 	PixelUi.label(nightBanner, "Title", 0, 3, 200, 12, "NIGHT", Night.Moon, Enum.TextXAlignment.Center)
 	PixelUi.label(nightBanner, "Sub", 0, 16, 200, 10, "Black Sabbath hunts in the shadows.", Colors.Text, Enum.TextXAlignment.Center)
 
-	local pop, popFill, popLabel = chip(hud, "Feedback", 80, 84, 160, 14, "", Colors.Ink)
+	local pop, popFill, popLabel = chip(hud, "Feedback", 80, 98, 160, 14, "", Colors.Ink)
 	pop.ZIndex = 5
 	pop.Visible = false
 	local popToken = 0
 
-	local banner = PixelUi.box(hud, "OutcomeBanner", 70, 44, 180, 60, Colors.Panel)
+	local banner = PixelUi.box(hud, "OutcomeBanner", 70, 34, 180, 60, Colors.Panel)
 	banner.ZIndex = 9
 	banner.Visible = false
 	local bannerTitle = PixelUi.label(banner, "Title", 0, 6, 180, 12, "", Colors.Victory, Enum.TextXAlignment.Center)
@@ -403,7 +478,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 	local bannerButtonBox = chip(banner, "ButtonBox", 40, 36, 100, 16, "FIGHT AGAIN", Colors.Button)
 	local bannerButton = PixelUi.button(bannerButtonBox, "Button", 0, 0, 100, 16, "")
 
-	local toastBox = PixelUi.box(hud, "Toast", 40, 30, 240, 14, Colors.PanelLight)
+	local toastBox = PixelUi.box(hud, "Toast", 40, 36, 240, 14, Colors.PanelLight)
 	toastBox.ZIndex = 10
 	toastBox.Visible = false
 	local toastLabel = PixelUi.label(toastBox, "Text", 4, 1, 232, 12, "", Colors.Text, Enum.TextXAlignment.Center)
@@ -414,11 +489,15 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 	local lastSnapshot: Snapshot? = nil
 	local lastLogCount = 0
 	local busy = false
-	local hoverInfo: string? = nil
-	local defaultInfo = ""
-	local pickerKind: "Item" | "Redirect" | nil = nil
-	local pickerItemId: CombatTypes.BeltItemId? = nil
 	local nightShownFor: string? = nil
+	local menu: MenuEntry = "Attack"
+	-- What the centre pane shows on top of the menu entry: a belt item's targets
+	-- or the Guard Redirect targets.
+	local centerMode: "Menu" | "ItemTargets" | "Redirect" = "Menu"
+	local selectedItem: CombatTypes.BeltItemId? = nil
+	local rightTab: "Party" | "Foes" = "Foes"
+	local menuActorKey: string? = nil
+	local hoverNote: string? = nil
 
 	local function actorMap(snapshot: Snapshot): { [string]: Actor }
 		local map: { [string]: Actor } = {}
@@ -475,10 +554,6 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		end)
 	end
 
-	local function refreshInfo()
-		infoLine.Text = hoverInfo or defaultInfo
-	end
-
 	local function flashHit(view: FighterView)
 		view.flash.BackgroundTransparency = 0.35
 		task.delay(0.12, function()
@@ -496,6 +571,69 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		return snapshot ~= nil and snapshot.outcome == "InProgress"
 	end
 
+	local function activeParty(snapshot: Snapshot): Actor?
+		for _, actor in snapshot.actors do
+			if actor.id == snapshot.activeActorId and actor.team == "Player" then
+				return actor
+			end
+		end
+		return nil
+	end
+
+	local function optionFor(snapshot: Snapshot, moveId: string): PrimaryOption?
+		for _, option in snapshot.primaryOptions do
+			if option.moveId == moveId then
+				return option
+			end
+		end
+		return nil
+	end
+
+	local function skillOptions(snapshot: Snapshot): { PrimaryOption }
+		local list: { PrimaryOption } = {}
+		for _, option in snapshot.primaryOptions do
+			if option.moveId ~= "BasicStrike" and option.moveId ~= "Defend" then
+				table.insert(list, option)
+			end
+		end
+		return list
+	end
+
+	-- A fighter with no usable Primary (Stunned, or only a spent Bonus) skips with
+	-- End Turn; everyone else ends the turn by taking a Primary.
+	local function canSkip(snapshot: Snapshot): boolean
+		if not snapshot.endTurnLegality.canUse then
+			return false
+		end
+		for _, option in snapshot.primaryOptions do
+			if option.legality.canUse then
+				return false
+			end
+		end
+		return true
+	end
+
+	local function pickTarget(option: PrimaryOption): string?
+		for _, target in option.targets do
+			if target.legality.canUse then
+				return target.targetId
+			end
+		end
+		local first = option.targets[1]
+		return if first then first.targetId else nil
+	end
+
+	local function usePrimary(option: PrimaryOption?)
+		if busy or not option then
+			return
+		end
+		if not option.legality.canUse then
+			toast(reasonOf(option.legality))
+			return
+		end
+		callbacks.onPrimary(option, pickTarget(option))
+	end
+
 	-- Stage ----------------------------------------------------------------------
 	local function renderStage(snapshot: Snapshot)
 		local night = snapshot.stageTag == "Night"
@@ -506,7 +644,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		stageLayer:ClearAllChildren()
 		local id = AssetManifest.BlackSabbathStage
 		if id ~= PixelUi.UNSET_ASSET then
-			PixelUi.image(stageLayer, "Stage", 0, 0, PixelUi.NATIVE_WIDTH, PixelUi.NATIVE_HEIGHT, id)
+			PixelUi.image(stageLayer, "Stage", 0, 0, PixelUi.NATIVE_WIDTH, ARENA_H, id)
 		else
 			drawPlaceholderNight(stageLayer, night)
 		end
@@ -524,15 +662,20 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		local flash = PixelUi.frame(holder, "HitFlash", 34, 28, 28, 60, Colors.Hp)
 		flash.BackgroundTransparency = 1
 
-		-- Plate: name / HP bar / HP + Stamina / Resolve / statuses.
-		local plateOutline, plate = PixelUi.box(holder, "Plate", (96 - PLATE_W) // 2 - 1, -5, PLATE_W + 2, 35, Colors.Panel)
+		-- Small plate over the head: name, HP bar, HP + Stamina pips, Resolve.
+		local plateX = (96 - PLATE_W) // 2 - 1
+		local plateOutline, plate = PixelUi.box(holder, "Plate", plateX, -6, PLATE_W + 2, 25, Colors.Panel)
 		plateOutline.ZIndex = 2
 		local nameLabel = PixelUi.label(plate, "Name", 0, 0, PLATE_W, 8, "", Colors.Text, Enum.TextXAlignment.Center)
-		local _, setHp = PixelUi.bar(plate, "Hp", 0, 8, PLATE_W, 5, Colors.Hp, Colors.HpBack)
-		local hpText = PixelUi.label(plate, "HpText", 1, 13, 34, 8, "", Colors.Text)
-		local pipRow = PixelUi.frame(plate, "Stamina", 34, 15, 30, 4)
-		local resolveOuter, setResolve = PixelUi.bar(plate, "Resolve", 0, 21, PLATE_W, 4, Night.Resolve, Night.ResolveBack)
-		local statusRow = PixelUi.frame(plate, "Statuses", 0, 25, PLATE_W, 8)
+		local _, setHp = PixelUi.bar(plate, "Hp", 0, 8, PLATE_W, 4, Colors.Hp, Colors.HpBack)
+		local hpText = PixelUi.label(plate, "HpText", 1, 12, 30, 8, "", Colors.Text)
+		local pipRow = PixelUi.frame(plate, "Stamina", 30, 14, 20, 3)
+		local resolveOuter, setResolve = PixelUi.bar(plate, "Resolve", 0, 20, PLATE_W, 3, Night.Resolve, Night.ResolveBack)
+		local statusRow = PixelUi.frame(holder, "Statuses", plateX, 19, PLATE_W + 2, 8)
+		statusRow.ZIndex = 2
+		-- Active-fighter marker beside the plate.
+		local marker = PixelUi.frame(holder, "Marker", plateX - 4, 0, 3, 7, Colors.Victory)
+		marker.ZIndex = 2
 
 		local callouts = PixelUi.frame(holder, "Callouts", 18, 34, 60, 40)
 		callouts.ZIndex = 2
@@ -548,6 +691,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 			sprite = sprite,
 			aura = aura,
 			flash = flash,
+			marker = marker,
 			plateOutline = plateOutline,
 			nameLabel = nameLabel,
 			setHp = setHp,
@@ -568,23 +712,23 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 				pip:Destroy()
 			end
 			table.clear(view.pips)
-			-- Fit up to 30 px: 4 px pips with a 1 px gap, narrower if needed.
-			local step = if maxPips > 0 then math.max(2, math.min(5, (30 + 1) // maxPips)) else 5
+			-- Fit up to 20 px: 3 px pips with a 1 px gap, narrower if needed.
+			local step = if maxPips > 0 then math.max(2, math.min(4, (20 + 1) // maxPips)) else 4
 			local width = maxPips * step - 1
-			view.pipRow.Position = UDim2.fromOffset(PLATE_W - width, 15)
+			view.pipRow.Position = UDim2.fromOffset(PLATE_W - width, 14)
 			for i = 1, maxPips do
-				table.insert(view.pips, PixelUi.frame(view.pipRow, `Pip{i}`, (i - 1) * step, 0, step - 1, 4, Colors.StaminaBack))
+				table.insert(view.pips, PixelUi.frame(view.pipRow, `Pip{i}`, (i - 1) * step, 0, step - 1, 3, Colors.StaminaBack))
 			end
 		end
 		for i, pip in view.pips do
-			pip.BackgroundColor3 = if i <= actor.stamina then Colors.Stamina else Colors.StaminaBack
+			pip.BackgroundColor3 = if i <= actor.stamina then Colors.Guard else Colors.StaminaBack
 		end
 	end
 
 	local function renderStatuses(view: FighterView, actor: Actor)
 		view.statusRow:ClearAllChildren()
 		for index, status in actor.statuses do
-			if index > 3 then
+			if index > 2 then
 				break
 			end
 			local code = STATUS_SHORT[status.id] or string.upper(string.sub(status.id, 1, 3))
@@ -592,11 +736,11 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 				elseif status.id == "Fade" then Night.Shadow
 				elseif status.id == "Stun" then Colors.Defeat
 				else Colors.PanelLight
-			local outline, _fill, label = chip(view.statusRow, status.id, (index - 1) * 21 + 1, 0, 20, 8, code, color)
+			local outline, _fill, label = chip(view.statusRow, status.id, (index - 1) * 26, 0, 25, 8, code, color)
 			-- Removable statuses get a green outline so cures are easy to spot.
 			outline.BackgroundColor3 = if status.isRemovable then Night.Removable else Colors.Ink
 			label.TextColor3 = if status.id == "Exposed" then Colors.Ink else Colors.Text
-			local press = PixelUi.button(outline, "Press", 0, 0, 20, 8, "")
+			local press = PixelUi.button(outline, "Press", 0, 0, 25, 8, "")
 			press.Activated:Connect(function()
 				local turns = if status.turnsRemaining then `, {status.turnsRemaining} turn(s) left` else ""
 				toast(`{status.label}{turns}{if status.isRemovable then " [Removable]" else ""}`)
@@ -639,6 +783,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 			local active = actor.id == snapshot.activeActorId
 			view.sprite.Visible = not down
 			view.aura.Visible = onFire and not down
+			view.marker.Visible = active and snapshot.outcome == "InProgress"
 			view.nameLabel.Text = if down then `{shortName(snapshot, actor.id)} DOWN` else shortName(snapshot, actor.id)
 			view.nameLabel.TextColor3 = if actor.finisherReady then Colors.Victory elseif active then Colors.Active else Colors.Text
 			view.plateOutline.BackgroundColor3 = if onFire then Night.Fire elseif active then Colors.Active else Colors.Ink
@@ -677,29 +822,8 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		end
 	end
 
-	-- Top rows ---------------------------------------------------------------------
-	local function renderTop(snapshot: Snapshot)
-		turnLabel.Text = `T{snapshot.turn}`
-		for _, c in queueChips do
-			c:Destroy()
-		end
-		table.clear(queueChips)
-		local x = 22
-		for index, entry in snapshot.turnOrder do
-			if x + 40 > 146 then
-				break
-			end
-			local isActive = entry.actorId == snapshot.activeActorId
-			local name = string.sub(shortName(snapshot, entry.actorId), 1, 4)
-			local c = chip(queuePanel, `Q{index}`, x, 1, 40, 11, `{name} {entry.speed}`,
-				if isActive then Colors.Active else Colors.PanelLight, if isActive then Colors.Ink else Colors.Text)
-			table.insert(queueChips, c)
-			x += 41
-		end
-
-		local night = snapshot.stageTag == "Night"
-		stageTagLabel.Text = if night then "NIGHT" else "NEUTRAL"
-		stageTagFill.BackgroundColor3 = if night then Night.Tag else Colors.PanelLight
+	-- Arena corners + intent banner ---------------------------------------------------
+	local function grabState(snapshot: Snapshot): (boolean, boolean)
 		local step = snapshot.blackSabbathStep
 		local grabStep = step == "ShadowGrabWindup" or step == "ShadowGrabLanding"
 		local grabLive = false
@@ -708,22 +832,23 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 				grabLive = true
 			end
 		end
+		return grabStep, grabLive
+	end
+
+	local function renderCorners(snapshot: Snapshot)
+		local night = snapshot.stageTag == "Night"
+		stageLabel.Text = `{if night then "NIGHT" else "NEUTRAL"} - TURN {snapshot.turn}`
+		stageFill.BackgroundColor3 = if night then Night.Tag else Colors.PanelLight
+		local step = snapshot.blackSabbathStep
+		local grabStep, grabLive = grabState(snapshot)
 		-- A UV Flash or Hamon Interrupt removes the grab intent; say so instead of
 		-- still warning that it is about to land.
 		local grabBroken = grabStep and not grabLive
 		stepLabel.Text = if grabBroken then "GRAB BROKEN" else STEP_TEXT[step] or step
-		local stepColor = if grabBroken then Colors.Panel
+		stepFill.BackgroundColor3 = if grabBroken then Colors.Panel
 			elseif step == "ShadowGrabWindup" then Night.Shadow
 			elseif step == "ShadowGrabLanding" then Colors.Heavy
 			else Colors.Panel
-		stepFill.BackgroundColor3 = stepColor
-
-		qteModeLabel.Text = QTE_MODE_TEXT[snapshot.qteMode] or snapshot.qteMode
-		local canToggle = not busy and not qteActive() and inProgress()
-		qteModeFill.BackgroundColor3 = if canToggle then Colors.Button else Colors.Disabled
-
-		local last = snapshot.log[#snapshot.log]
-		logLine.Text = if last then last.message else ""
 
 		for i, line in fullLogLines do
 			local event = snapshot.log[#snapshot.log - FULL_LOG_LINES + i]
@@ -731,7 +856,29 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		end
 	end
 
-	-- Intent + Fade badges --------------------------------------------------------
+	local function intentTexts(snapshot: Snapshot, intent: Intent): (string, string)
+		local when = if intent.landingTurn <= snapshot.turn then "NOW" else `T{intent.landingTurn}`
+		local verb = if intent.stage == "Windup" then "LANDS" elseif intent.stage == "Landing" then "LANDING" else "HITS"
+		local line1 = `INTENT: {string.upper(intent.label)} ({verb} {when})`
+		local parts: { string } = {}
+		if intent.targetId == intent.actorId then
+			table.insert(parts, "Self")
+		else
+			local who = if intent.targeting == "Party" then "PARTY" else shortName(snapshot, intent.targetId)
+			table.insert(parts, `Target: {who}`)
+		end
+		if intent.estimatedPower > 0 then
+			table.insert(parts, `PWR {math.round(intent.estimatedPower)}`)
+		end
+		if intent.uvCancelable then
+			table.insert(parts, "UV")
+		end
+		if intent.offensiveInterruptible then
+			table.insert(parts, "INT")
+		end
+		return line1, table.concat(parts, " - ")
+	end
+
 	local function renderIntent(snapshot: Snapshot, actors: { [string]: Actor })
 		local intent: Intent? = snapshot.enemyIntents[1]
 		if intent and snapshot.outcome == "InProgress" then
@@ -739,29 +886,10 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 				elseif intent.telegraphKind == "Guard" then Night.Shadow
 				else Colors.Attack
 			intentBox.Visible = true
-			intentBox.BackgroundColor3 = color
-			intentLine1.Text = string.upper(intent.label)
-			intentLine1.TextColor3 = color
-			local when = if intent.landingTurn <= snapshot.turn then "NOW" else `T{intent.landingTurn}`
-			if intent.targetId == intent.actorId then
-				intentLine2.Text = `SELF  {when}`
-			else
-				local who = if intent.targeting == "Party" then "PARTY" else shortName(snapshot, intent.targetId)
-				intentLine2.Text = `> {who} {when}`
-			end
-			intentLine3.Text = if intent.estimatedPower > 0 then `PWR {intent.estimatedPower}` else ""
-			local flags = {}
-			if intent.uvCancelable then
-				table.insert(flags, "UV")
-			end
-			if intent.offensiveInterruptible then
-				table.insert(flags, "INT")
-			end
-			local stage = if intent.stage == "Windup" then "WINDUP"
-				elseif intent.stage == "Landing" then "LANDING!"
-				else "THIS TURN"
-			intentLine4.Text = if #flags > 0 then `{stage} {table.concat(flags, " ")}` else stage
-			intentLine4.TextColor3 = if intent.stage == "Landing" then Colors.Heavy else Colors.TextDim
+			local line1, line2 = intentTexts(snapshot, intent)
+			intentLine1.Text = line1
+			intentLine1.TextColor3 = if intent.telegraphKind == "Heavy" then Colors.Victory else color
+			intentLine2.Text = line2
 		else
 			intentBox.Visible = false
 		end
@@ -778,362 +906,254 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		end
 		fadeBox.Visible = fade ~= nil and snapshot.outcome == "InProgress"
 		if fade then
-			fadeLabel.Text = if fade.turnsRemaining then `{fade.turnsRemaining} TURN(S) LEFT` else "ACTIVE"
+			local turns = if fade.turnsRemaining then ` {fade.turnsRemaining}T` else ""
+			fadeLabel.Text = `FADE +20 DODGE{turns}`
 		end
 	end
 
-	-- Action panel ----------------------------------------------------------------
-	local function activeParty(snapshot: Snapshot): Actor?
-		for _, actor in snapshot.actors do
-			if actor.id == snapshot.activeActorId and actor.team == "Player" then
-				return actor
-			end
-		end
-		return nil
-	end
+	-- Dock: left menu ---------------------------------------------------------------
+	local renderDock: (snapshot: Snapshot) -> ()
 
-	local function optionAt(index: number): PrimaryOption?
+	local function rerender()
 		local snapshot = lastSnapshot
-		return if snapshot then snapshot.primaryOptions[index] else nil
+		if snapshot then
+			renderDock(snapshot)
+		end
 	end
 
-	local function pickTarget(option: PrimaryOption): string?
-		for _, target in option.targets do
-			if target.legality.canUse then
-				return target.targetId
+	for _, entry in MENU_ORDER do
+		local view = menuViews[entry]
+		view.button.Activated:Connect(function()
+			local snapshot = lastSnapshot
+			if busy or not snapshot then
+				return
 			end
-		end
-		local first = option.targets[1]
-		return if first then first.targetId else nil
+			if entry == "Guard" and canSkip(snapshot) then
+				callbacks.onEndTurn()
+				return
+			end
+			if menu == entry and centerMode == "Menu" and (entry == "Attack" or entry == "Guard") then
+				-- Second press on ATTACK / GUARD confirms, like the USE button.
+				usePrimary(optionFor(snapshot, if entry == "Attack" then "BasicStrike" else "Defend"))
+				return
+			end
+			menu = entry
+			centerMode = "Menu"
+			selectedItem = nil
+			rerender()
+		end)
 	end
 
-	local function describeOption(option: PrimaryOption): string
-		if not option.legality.canUse then
-			return reasonOf(option.legality)
+	local function renderMenu(snapshot: Snapshot, actor: Actor?)
+		local live = snapshot.outcome == "InProgress"
+		if actor then
+			actorLabel.Text = shortName(snapshot, actor.id)
+			actorLabel.TextColor3 = Colors.Active
+			staLabel.Text = `STA {actor.stamina}/{actor.maxStamina}`
+		elseif live then
+			actorLabel.Text = shortName(snapshot, snapshot.activeActorId)
+			actorLabel.TextColor3 = Colors.Heavy
+			staLabel.Text = ""
+		else
+			actorLabel.Text = ""
+			staLabel.Text = ""
 		end
-		local parts = { TAG_LONG[option.scalingTag] or option.scalingTag }
+		local skip = canSkip(snapshot)
+		for _, entry in MENU_ORDER do
+			local view = menuViews[entry]
+			local selected = menu == entry and actor ~= nil
+			local text = string.upper(entry)
+			local extra = ""
+			local usable = actor ~= nil and not busy
+			if entry == "Attack" then
+				local option = optionFor(snapshot, "BasicStrike")
+				usable = usable and option ~= nil and option.legality.canUse
+			elseif entry == "Skills" then
+				local any = false
+				for _, option in skillOptions(snapshot) do
+					any = any or option.legality.canUse
+				end
+				usable = usable and #snapshot.primaryOptions > 0
+				extra = if any then "" else "-"
+			elseif entry == "Guard" then
+				if skip then
+					text = "SKIP TURN"
+				else
+					local option = optionFor(snapshot, "Defend")
+					usable = usable and option ~= nil and option.legality.canUse
+				end
+			else
+				extra = `x{snapshot.belt.beltChargesRemaining}`
+			end
+			view.label.Text = if selected then `> {text}` else `  {text}`
+			view.extra.Text = extra
+			view.fill.BackgroundColor3 = if selected then Night.Select else Night.Dock
+			view.label.TextColor3 = if usable then Colors.Text else Colors.TextDim
+			view.extra.TextColor3 = if snapshot.belt.beltChargesRemaining > 0 then Colors.TextDim else Colors.Defeat
+		end
+		qteModeLabel.Text = `QTE: [{QTE_MODE_TEXT[snapshot.qteMode] or snapshot.qteMode}]`
+		local canToggle = not busy and not qteActive() and live
+		qteModeLabel.TextColor3 = if canToggle then Colors.TextDim else Colors.Disabled
+	end
+
+	-- Dock: centre pane ---------------------------------------------------------------
+	local rowActions: { [Row]: () -> () } = {}
+	local function bindRow(row: Row, action: (() -> ())?)
+		rowActions[row] = action :: any
+	end
+	for _, row in skillRows do
+		row.button.Activated:Connect(function()
+			local action = rowActions[row]
+			if action and not busy then
+				action()
+			end
+		end)
+	end
+	for _, row in targetRows do
+		row.button.Activated:Connect(function()
+			local action = rowActions[row]
+			if action and not busy then
+				action()
+			end
+		end)
+	end
+
+	local function grabWarning(snapshot: Snapshot): string
+		local intent = snapshot.enemyIntents[1]
+		if not intent or snapshot.outcome ~= "InProgress" then
+			return ""
+		end
+		if intent.offensiveInterruptible or intent.uvCancelable then
+			return "WINDUP: GUARD / INT / UV!"
+		end
+		if intent.stage == "Landing" then
+			return `{string.upper(intent.label)} LANDS NOW!`
+		end
+		return ""
+	end
+
+	local function oddsText(option: PrimaryOption): string
+		local parts: { string } = {}
 		local target = option.targets[1]
 		if target then
 			table.insert(parts, `HIT {target.hitIfExecutedPercent}%`)
 			if target.interruptIfExecutedPercent then
 				table.insert(parts, `INT {target.interruptIfExecutedPercent}%`)
 			end
-		elseif option.moveId == "Defend" then
-			table.insert(parts, "Guard until next turn")
 		end
 		if option.qte == "HighRiskThreeCheck" then
 			table.insert(parts, "3 CHECKS")
+		elseif option.qte == "Standard" then
+			table.insert(parts, "1 CHECK")
 		end
-		return table.concat(parts, " ")
+		if option.effectiveQteMode then
+			table.insert(parts, `QTE {QTE_MODE_TEXT[option.effectiveQteMode] or option.effectiveQteMode}`)
+		end
+		return table.concat(parts, "  ")
 	end
 
-	for i = 1, MAX_MOVES do
-		local col = (i - 1) % 3
-		local row = (i - 1) // 3
-		local box, fill = PixelUi.box(actionFill, `Move{i}`, 1 + col * 52, 11 + row * 16, 51, 15, Colors.Button)
-		local title = PixelUi.label(fill, "Title", 0, 0, 49, 7, "", Colors.Text, Enum.TextXAlignment.Center)
-		local tag = PixelUi.label(fill, "Tag", 1, 6, 30, 7, "", Colors.TextDim)
-		local cost = PixelUi.label(fill, "Cost", 28, 6, 20, 7, "", Colors.Stamina, Enum.TextXAlignment.Right)
-		local button = PixelUi.button(box, "Press", 0, 0, 51, 15, "")
-		local view: MoveButton = { box = box, fill = fill, title = title, tag = tag, cost = cost, button = button }
-		moveButtons[i] = view
-
-		button.MouseEnter:Connect(function()
-			local option = optionAt(i)
-			if option then
-				hoverInfo = describeOption(option)
-				if option.legality.canUse and not busy then
-					fill.BackgroundColor3 = Colors.ButtonHover
-				end
-			end
-			refreshInfo()
-		end)
-		button.MouseLeave:Connect(function()
-			hoverInfo = nil
-			local option = optionAt(i)
-			if option and option.legality.canUse and not busy then
-				fill.BackgroundColor3 = if option.moveId == "Finisher" then Night.Fire else Colors.Button
-			end
-			refreshInfo()
-		end)
-		button.Activated:Connect(function()
-			local option = optionAt(i)
-			if busy or not option then
-				return
-			end
-			if not option.legality.canUse then
-				hoverInfo = reasonOf(option.legality)
-				refreshInfo()
-				return
-			end
-			callbacks.onPrimary(option, pickTarget(option))
-		end)
+	local function showBody(which: Frame)
+		detailBody.Visible = which == detailBody
+		skillsBody.Visible = which == skillsBody
+		beltBody.Visible = which == beltBody
+		targetBody.Visible = which == targetBody
 	end
 
-	local function slotChip(fill: Frame, label: TextLabel, lit: boolean, color: Color3)
-		fill.BackgroundColor3 = if lit then color else Colors.PanelLight
-		label.TextColor3 = if lit then Colors.Ink else Colors.TextDim
+	local function slotTag(option: PrimaryOption): string
+		local slot = if option.slot == "BonusPrimary" then "BONUS" else "PRI"
+		return `{slot} {option.staminaCost}STA ENDS TURN`
 	end
 
-	local function renderActions(snapshot: Snapshot)
-		local actor = activeParty(snapshot)
-		local live = snapshot.outcome == "InProgress"
-		if actor then
-			actorLabel.Text = shortName(snapshot, actor.id)
-			actorLabel.TextColor3 = Colors.Active
-		elseif live then
-			actorLabel.Text = shortName(snapshot, snapshot.activeActorId)
-			actorLabel.TextColor3 = Colors.Heavy
+	local function renderDetail(snapshot: Snapshot, moveId: string)
+		showBody(detailBody)
+		local option = optionFor(snapshot, moveId)
+		centerTitle.Text = MOVE_NAME[moveId] or moveId
+		if not option then
+			centerTag.Text = ""
+			detailText.Text = "Waiting for your turn."
+			detailOdds.Text = ""
+			warnBox.Visible = false
+			useBox.Visible = false
+			return
+		end
+		centerTag.Text = slotTag(option)
+		centerTag.TextColor3 = if option.slot == "BonusPrimary" then Colors.Victory else Colors.Active
+		detailText.Text = MOVE_BLURB[moveId] or option.label
+		if option.legality.canUse then
+			detailOdds.Text = `{TAG_SHORT[option.scalingTag] or ""} {oddsText(option)}`
+			detailOdds.TextColor3 = Colors.TextDim
 		else
-			actorLabel.Text = ""
+			detailOdds.Text = reasonOf(option.legality)
+			detailOdds.TextColor3 = Colors.Heavy
 		end
-		slotChip(priFill, priLabel, actor ~= nil and actor.primaryAvailable, Colors.Active)
-		slotChip(secFill, secLabel, actor ~= nil and actor.secondaryAvailable, Colors.Guard)
-		slotChip(bonusFill, bonusLabel, actor ~= nil and actor.bonusPrimaryAvailable, Colors.Victory)
+		local warning = grabWarning(snapshot)
+		warnBox.Visible = warning ~= ""
+		warnLabel.Text = warning
+		useBox.Visible = true
+		local usable = option.legality.canUse and not busy
+		useFill.BackgroundColor3 = if usable then Colors.Button else Colors.Disabled
+		useLabel.TextColor3 = if usable then Colors.Text else Colors.TextDim
+	end
 
-		local firstReason = ""
-		for i, view in moveButtons do
-			local option = snapshot.primaryOptions[i]
+	local function renderSkills(snapshot: Snapshot)
+		showBody(skillsBody)
+		local actor = activeParty(snapshot)
+		local _ = actor
+		centerTitle.Text = "SKILLS"
+		centerTag.Text = hoverNote or "PRI - ENDS TURN"
+		centerTag.TextColor3 = if hoverNote then Colors.Heavy else Colors.Active
+		local list = skillOptions(snapshot)
+		for i, row in skillRows do
+			local option = list[i]
+			row.box.Visible = option ~= nil
 			if option then
-				view.box.Visible = true
 				local usable = option.legality.canUse and not busy
 				local finisher = option.moveId == "Finisher" and option.legality.canUse
-				view.title.Text = MOVE_SHORT[option.moveId] or string.upper(string.match(option.label, "^%S+") or option.label)
-				view.tag.Text = TAG_SHORT[option.scalingTag] or ""
-				view.cost.Text = if option.staminaCost > 0 then `{option.staminaCost}ST` else "-"
-				view.fill.BackgroundColor3 = if not usable then Colors.Disabled elseif finisher then Night.Fire else Colors.Button
-				view.box.BackgroundColor3 = if finisher then Colors.Victory
-					elseif usable and option.slot == "BonusPrimary" then Colors.Victory
-					else Colors.Ink
-				view.title.TextColor3 = if usable then Colors.Text else Colors.TextDim
-				view.tag.TextColor3 = if usable then Colors.Text else Colors.TextDim
-				view.cost.TextColor3 = if usable then Colors.Stamina else Colors.TextDim
-				if not option.legality.canUse and firstReason == "" then
-					firstReason = reasonOf(option.legality)
+				row.cells[1].Text = MOVE_NAME[option.moveId] or option.label
+				row.cells[2].Text = if option.staminaCost > 0 then `{option.staminaCost} STA` else "-"
+				row.cells[3].Text = TAG_SHORT[option.scalingTag] or ""
+				local note = if option.legality.canUse
+					then (if option.qte == "HighRiskThreeCheck" then "3 CHECKS"
+						elseif option.qte == "Standard" then "1 CHECK"
+						else (option.targets[1] and `HIT {option.targets[1].hitIfExecutedPercent}%` or ""))
+					else "LOCKED"
+				row.cells[4].Text = note
+				row.fill.BackgroundColor3 = if finisher then Night.Fire elseif usable then Night.Dock else Night.Dock
+				row.box.BackgroundColor3 = if finisher then Colors.Victory elseif usable then Night.Select else Night.Dock
+				for c, cell in row.cells do
+					cell.TextColor3 = if not usable then Colors.TextDim
+						elseif c == 2 then Colors.Guard
+						elseif c == 3 then Colors.Victory
+						else Colors.Text
 				end
-			else
-				view.box.Visible = false
-			end
-		end
-
-		-- Default info: Resolve readout for the acting fighter, else why nothing works.
-		if busy then
-			defaultInfo = "..."
-		elseif actor then
-			if actor.onFireTurnsRemaining > 0 then
-				defaultInfo = `ON FIRE {actor.onFireTurnsRemaining}T RES {actor.resolve}`
-			else
-				defaultInfo = `RES {actor.resolve} +{actor.resolveGainedThisTurn}/{CombatTypes.Phase2Limits.ResolveGainPerTurn}`
-			end
-		else
-			defaultInfo = if live then firstReason else ""
-		end
-		hoverInfo = nil
-		refreshInfo()
-
-		local canEnd = snapshot.endTurnLegality.canUse and not busy
-		endFill.BackgroundColor3 = if canEnd then Colors.Button else Colors.Disabled
-		endLabel.TextColor3 = if canEnd then Colors.Text else Colors.TextDim
-	end
-
-	endButton.MouseEnter:Connect(function()
-		local snapshot = lastSnapshot
-		if snapshot then
-			hoverInfo = if snapshot.endTurnLegality.canUse
-				then "Skip unused Secondary / Bonus"
-				else reasonOf(snapshot.endTurnLegality)
-			refreshInfo()
-		end
-	end)
-	endButton.MouseLeave:Connect(function()
-		hoverInfo = nil
-		refreshInfo()
-	end)
-	endButton.Activated:Connect(function()
-		local snapshot = lastSnapshot
-		if busy or not snapshot then
-			return
-		end
-		if not snapshot.endTurnLegality.canUse then
-			hoverInfo = reasonOf(snapshot.endTurnLegality)
-			refreshInfo()
-			return
-		end
-		callbacks.onEndTurn()
-	end)
-
-	-- Picker ------------------------------------------------------------------------
-	local renderPicker: () -> ()
-
-	local function closePicker()
-		pickerKind = nil
-		pickerItemId = nil
-		picker.Visible = false
-	end
-
-	local function setRow(row: PickerRow, name: string, detail: string, legality: Legality, onUse: () -> ())
-		row.box.Visible = true
-		row.name.Text = if detail ~= "" then `{name}: {detail}` else name
-		local usable = legality.canUse and not busy
-		row.detail.Text = if legality.canUse then "Ready" else reasonOf(legality)
-		row.detail.TextColor3 = if legality.canUse then Colors.Active else Colors.Heavy
-		row.useFill.BackgroundColor3 = if usable then Colors.Button else Colors.Disabled
-		row.useLabel.TextColor3 = if usable then Colors.Text else Colors.TextDim
-		-- Rebind the button for this render.
-		row.use:Destroy()
-		local use = PixelUi.button(row.useBox, "Press", 0, 0, 46, 14, "")
-		row.use = use
-		use.Activated:Connect(function()
-			if busy or not legality.canUse then
-				return
-			end
-			closePicker()
-			onUse()
-		end)
-	end
-
-	function renderPicker()
-		local snapshot = lastSnapshot
-		for _, row in pickerRows do
-			row.box.Visible = false
-		end
-		if not snapshot or not pickerKind then
-			picker.Visible = false
-			return
-		end
-		picker.Visible = true
-		if pickerKind == "Item" then
-			local item: BeltItemView? = nil
-			for _, candidate in snapshot.belt.items do
-				if candidate.itemId == pickerItemId then
-					item = candidate
-				end
-			end
-			if not item then
-				closePicker()
-				return
-			end
-			pickerTitle.Text = `{string.upper(item.label)}  x{item.stock}`
-			local belt = snapshot.belt
-			pickerSub.Text = `BELT {belt.beltChargesRemaining}/{CombatTypes.Phase2Limits.PartyBeltCharges}   HEALS {belt.directHealsRemaining}/{CombatTypes.Phase2Limits.DirectHealsPerFight}   MED-KIT {if belt.medKitUsed then "USED" else "READY"}`
-			if item.itemId == "UVFlash" then
-				pickerTip.Text = UV_TOOLTIP
-				pickerTip.TextColor3 = Colors.Victory
-			else
-				pickerTip.Text = if item.legality.canUse then "Uses 1 belt charge and your Secondary." else reasonOf(item.legality)
-				pickerTip.TextColor3 = if item.legality.canUse then Colors.TextDim else Colors.Heavy
-			end
-			for i, preview in item.targets do
-				local row = pickerRows[i]
-				if not row then
-					break
-				end
-				local detail = preview.summary
-				if preview.cancelsIntentId then
-					detail = `{detail} (cancel eligible)`
-				end
-				local itemId = item.itemId
-				local targetId = preview.targetId
-				setRow(row, shortName(snapshot, preview.targetId), detail, preview.legality, function()
-					callbacks.onBeltItem(itemId, targetId)
+				bindRow(row, function()
+					local current = lastSnapshot
+					usePrimary(if current then optionFor(current, option.moveId) else nil)
 				end)
-			end
-		else
-			local companion = snapshot.companion
-			local redirect = companion and companion.redirect
-			if not redirect then
-				closePicker()
-				return
-			end
-			local intentLabel = "attack"
-			for _, intent in snapshot.enemyIntents do
-				if intent.id == redirect.intentId then
-					intentLabel = intent.label
-				end
-			end
-			pickerTitle.Text = `GUARD REDIRECT  {redirect.usesRemaining}/{CombatTypes.Phase2Limits.CompanionRedirectsPerFight}`
-			pickerSub.Text = `{string.upper(intentLabel)} now targets {shortName(snapshot, redirect.originalTargetId)}`
-			pickerTip.Text = if redirect.legality.canUse then "Pick who takes the hit instead. Uses your Secondary." else reasonOf(redirect.legality)
-			pickerTip.TextColor3 = if redirect.legality.canUse then Colors.TextDim else Colors.Heavy
-			local intentId = redirect.intentId
-			for i, target in redirect.targets do
-				local row = pickerRows[i]
-				if not row then
-					break
-				end
-				local recipientId = target.recipientId
-				setRow(
-					row,
-					shortName(snapshot, target.recipientId),
-					if target.recipientIsDefending then "GUARDING (takes less damage)" else "NOT GUARDING",
-					target.legality,
-					function()
-						callbacks.onRedirect(intentId, recipientId)
-					end
-				)
+			else
+				bindRow(row, nil)
 			end
 		end
-	end
-
-	pickerCloseButton.Activated:Connect(closePicker)
-
-	-- Belt -----------------------------------------------------------------------------
-	for i = 1, 8 do
-		local col = (i - 1) % 4
-		local row = (i - 1) // 4
-		local box, fill = PixelUi.box(beltFill, `Item{i}`, 1 + col * 19, 18 + row * 18, 18, 17, Colors.PanelLight)
-		local icon = PixelUi.image(fill, "Icon", 0, 0, 16, 15, PixelUi.UNSET_ASSET)
-		local code = PixelUi.label(fill, "Code", 0, 0, 16, 8, "", Colors.Text, Enum.TextXAlignment.Center)
-		local stock = PixelUi.label(fill, "Stock", 0, 7, 16, 8, "", Colors.TextDim, Enum.TextXAlignment.Center)
-		local button = PixelUi.button(box, "Press", 0, 0, 18, 17, "")
-		beltTiles[i] = { box = box, fill = fill, icon = icon, code = code, stock = stock, button = button }
-		button.MouseEnter:Connect(function()
-			local snapshot = lastSnapshot
-			local item = snapshot and snapshot.belt.items[i]
-			if item then
-				hoverInfo = if item.itemId == "UVFlash" then "UV: Shadow cancel only" else `{item.label} x{item.stock}`
-				refreshInfo()
-			end
-		end)
-		button.MouseLeave:Connect(function()
-			hoverInfo = nil
-			refreshInfo()
-		end)
-		button.Activated:Connect(function()
-			local snapshot = lastSnapshot
-			local item = snapshot and snapshot.belt.items[i]
-			if not item or busy then
-				return
-			end
-			-- Always open the picker: it shows the previews and why an item is locked.
-			pickerKind = "Item"
-			pickerItemId = item.itemId
-			renderPicker()
-		end)
 	end
 
 	local function renderBelt(snapshot: Snapshot)
+		showBody(beltBody)
 		local belt = snapshot.belt
 		local limits = CombatTypes.Phase2Limits
-		beltCharges.Text = `BELT {belt.beltChargesRemaining}/{limits.PartyBeltCharges}`
-		beltCharges.TextColor3 = if belt.beltChargesRemaining > 0 then Colors.Text else Colors.Defeat
-		beltHeals.Text = `HEAL {belt.directHealsRemaining}/{limits.DirectHealsPerFight}`
-		beltHeals.TextColor3 = if belt.directHealsRemaining > 0 then Colors.TextDim else Colors.Defeat
-		beltKit.Text = if belt.medKitUsed then "KIT 0" else "KIT 1"
-		beltKit.TextColor3 = if belt.medKitUsed then Colors.Defeat else Colors.TextDim
+		centerTitle.Text = "BELT - SECONDARY"
+		centerTag.Text = `CHG {belt.beltChargesRemaining}/{limits.PartyBeltCharges} HEAL {belt.directHealsRemaining}/{limits.DirectHealsPerFight}`
+		centerTag.TextColor3 = if belt.beltChargesRemaining > 0 then Colors.Active else Colors.Defeat
 		for i, tile in beltTiles do
 			local item = belt.items[i]
 			tile.box.Visible = item ~= nil
 			if item then
 				local usable = item.legality.canUse and not busy
-				local iconKey = `{item.itemId}Icon`
-				local assetId = (AssetManifest :: any)[iconKey]
+				local assetId = (AssetManifest :: any)[`{item.itemId}Icon`]
 				local hasIcon = type(assetId) == "string" and assetId ~= PixelUi.UNSET_ASSET
 				tile.icon.Visible = hasIcon
 				if hasIcon then
 					tile.icon.Image = assetId
 				end
-				tile.code.Visible = not hasIcon
 				tile.code.Text = ITEM_SHORT[item.itemId] or string.upper(string.sub(item.itemId, 1, 3))
 				tile.stock.Text = `x{item.stock}`
 				tile.fill.BackgroundColor3 = if usable then Colors.Button
@@ -1146,86 +1166,312 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		end
 	end
 
-	-- Companion ----------------------------------------------------------------------
-	for i, mode in TACTICS do
-		local box, fill, label = chip(companionFill, mode, 1 + (i - 1) * 23, 18, 22, 11, TACTIC_SHORT[mode], Colors.PanelLight)
-		local button = PixelUi.button(box, "Press", 0, 0, 22, 11, "")
-		tacticButtons[mode] = { fill = fill, label = label, button = button }
-		button.MouseEnter:Connect(function()
-			local snapshot = lastSnapshot
-			local companion = snapshot and snapshot.companion
-			if companion then
-				hoverInfo = if companion.tacticLegality.canUse then `Tactic: {mode}` else reasonOf(companion.tacticLegality)
-				refreshInfo()
+	local function setTargetRow(row: Row, text: string, legality: Legality, onUse: () -> ())
+		row.box.Visible = true
+		local usable = legality.canUse and not busy
+		row.cells[1].Text = text
+		row.cells[1].TextColor3 = if usable then Colors.Text else Colors.TextDim
+		row.cells[2].Text = if legality.canUse then "> USE" else reasonOf(legality)
+		row.cells[2].TextColor3 = if legality.canUse then Colors.Active else Colors.Heavy
+		row.box.BackgroundColor3 = if usable then Night.Select else Night.Dock
+		bindRow(row, function()
+			if legality.canUse then
+				centerMode = "Menu"
+				selectedItem = nil
+				onUse()
+			else
+				toast(reasonOf(legality))
 			end
 		end)
-		button.MouseLeave:Connect(function()
-			hoverInfo = nil
-			refreshInfo()
+	end
+
+	local function renderTargets(snapshot: Snapshot)
+		showBody(targetBody)
+		for _, row in targetRows do
+			row.box.Visible = false
+			bindRow(row, nil)
+		end
+		if centerMode == "ItemTargets" then
+			local item: BeltItemView? = nil
+			for _, candidate in snapshot.belt.items do
+				if candidate.itemId == selectedItem then
+					item = candidate
+				end
+			end
+			if not item then
+				centerMode = "Menu"
+				renderBelt(snapshot)
+				return
+			end
+			centerTitle.Text = `{string.upper(item.label)} x{item.stock}`
+			centerTag.Text = "SECONDARY"
+			centerTag.TextColor3 = Colors.Guard
+			targetTip.Text = if item.itemId == "UVFlash" then UV_TOOLTIP
+				elseif item.legality.canUse then "Pick who gets it:"
+				else reasonOf(item.legality)
+			targetTip.TextColor3 = if item.legality.canUse or item.itemId == "UVFlash" then Colors.Victory else Colors.Heavy
+			for i, preview in item.targets do
+				local row = targetRows[i]
+				if not row then
+					break
+				end
+				local itemId = item.itemId
+				local targetId = preview.targetId
+				local text = if preview.summary ~= "" then `{shortName(snapshot, targetId)}: {preview.summary}` else shortName(snapshot, targetId)
+				setTargetRow(row, text, preview.legality, function()
+					callbacks.onBeltItem(itemId, targetId)
+				end)
+			end
+		else
+			local companion = snapshot.companion
+			local redirect = companion and companion.redirect
+			if not redirect then
+				centerMode = "Menu"
+				return
+			end
+			local limit = CombatTypes.Phase2Limits.CompanionRedirectsPerFight
+			centerTitle.Text = `REDIRECT {redirect.usesRemaining}/{limit}`
+			centerTag.Text = "SECONDARY"
+			centerTag.TextColor3 = Colors.Guard
+			local intentName = "the attack"
+			for _, intent in snapshot.enemyIntents do
+				if intent.id == redirect.intentId then
+					intentName = string.upper(intent.label)
+				end
+			end
+			targetTip.Text = if redirect.legality.canUse
+				then `{intentName} -> {shortName(snapshot, redirect.originalTargetId)}. Who takes it?`
+				else reasonOf(redirect.legality)
+			targetTip.TextColor3 = if redirect.legality.canUse then Colors.Victory else Colors.Heavy
+			local intentId = redirect.intentId
+			for i, target in redirect.targets do
+				local row = targetRows[i]
+				if not row then
+					break
+				end
+				local recipientId = target.recipientId
+				local guard = if target.recipientIsDefending then "GUARDING" else "NOT GUARDING"
+				setTargetRow(row, `{shortName(snapshot, recipientId)} ({guard})`, target.legality, function()
+					callbacks.onRedirect(intentId, recipientId)
+				end)
+			end
+		end
+	end
+
+	local function renderCenter(snapshot: Snapshot)
+		if snapshot.outcome ~= "InProgress" then
+			showBody(detailBody)
+			centerTitle.Text = if snapshot.outcome == "Victory" then "VICTORY" else "DEFEAT"
+			centerTag.Text = ""
+			detailText.Text = "The fight is over."
+			detailOdds.Text = ""
+			warnBox.Visible = false
+			useBox.Visible = false
+			return
+		end
+		if centerMode ~= "Menu" then
+			renderTargets(snapshot)
+			if centerMode ~= "Menu" then
+				return
+			end
+		end
+		if menu == "Attack" then
+			renderDetail(snapshot, "BasicStrike")
+		elseif menu == "Guard" then
+			if canSkip(snapshot) then
+				showBody(detailBody)
+				centerTitle.Text = "SKIP TURN"
+				centerTag.Text = ""
+				local actor = activeParty(snapshot)
+				local stunned = false
+				if actor then
+					for _, status in actor.statuses do
+						stunned = stunned or status.id == "Stun"
+					end
+				end
+				detailText.Text = if stunned
+					then "Stunned: no Primary this turn. Use your Secondary, then skip."
+					else "No Primary left this turn. Skip to the next fighter."
+				detailOdds.Text = ""
+				warnBox.Visible = false
+				useBox.Visible = true
+				useFill.BackgroundColor3 = if busy then Colors.Disabled else Colors.Button
+				useLabel.TextColor3 = if busy then Colors.TextDim else Colors.Text
+			else
+				renderDetail(snapshot, "Defend")
+			end
+		elseif menu == "Skills" then
+			renderSkills(snapshot)
+		else
+			renderBelt(snapshot)
+		end
+	end
+
+	useButton.Activated:Connect(function()
+		local snapshot = lastSnapshot
+		if busy or not snapshot then
+			return
+		end
+		if menu == "Guard" and canSkip(snapshot) then
+			callbacks.onEndTurn()
+			return
+		end
+		usePrimary(optionFor(snapshot, if menu == "Guard" then "Defend" else "BasicStrike"))
+	end)
+
+	for i, tile in beltTiles do
+		tile.button.Activated:Connect(function()
+			local snapshot = lastSnapshot
+			local item = snapshot and snapshot.belt.items[i]
+			if not item or busy then
+				return
+			end
+			-- Always open the targets: they show the previews and why an item is locked.
+			centerMode = "ItemTargets"
+			selectedItem = item.itemId
+			rerender()
 		end)
-		button.Activated:Connect(function()
+	end
+
+	backButton.Activated:Connect(function()
+		centerMode = "Menu"
+		selectedItem = nil
+		rerender()
+	end)
+
+	for i, row in skillRows do
+		row.button.MouseEnter:Connect(function()
+			local snapshot = lastSnapshot
+			local option = snapshot and skillOptions(snapshot)[i]
+			if snapshot and option and not option.legality.canUse then
+				hoverNote = reasonOf(option.legality)
+				renderSkills(snapshot)
+			end
+		end)
+		row.button.MouseLeave:Connect(function()
+			if hoverNote then
+				hoverNote = nil
+				rerender()
+			end
+		end)
+	end
+
+	-- Dock: right pane ----------------------------------------------------------------
+	local function renderSide(snapshot: Snapshot, actors: { [string]: Actor })
+		local partyCount, foeCount = 0, 0
+		local foe: Actor? = nil
+		local party: { Actor } = {}
+		for _, actor in snapshot.actors do
+			if actor.team == "Player" then
+				if actor.hp > 0 then
+					partyCount += 1
+				end
+				table.insert(party, actor)
+			elseif actor.hp > 0 or foe == nil then
+				if actor.hp > 0 then
+					foeCount += 1
+				end
+				foe = actor
+			end
+		end
+		partyTabLabel.Text = `PARTY {partyCount}`
+		foesTabLabel.Text = `FOES {foeCount}`
+		local onParty = rightTab == "Party"
+		partyTabFill.BackgroundColor3 = if onParty then Night.Select else Colors.PanelLight
+		foesTabFill.BackgroundColor3 = if onParty then Colors.PanelLight else Colors.Heavy
+		partyTabLabel.TextColor3 = if onParty then Colors.Text else Colors.TextDim
+		foesTabLabel.TextColor3 = if onParty then Colors.TextDim else Colors.Text
+		partyBody.Visible = onParty
+		foesBody.Visible = not onParty
+
+		-- Foes.
+		if foe then
+			foeName.Text = string.upper(foe.displayName)
+			foeLevel.Text = ""
+			setFoeHp(if foe.maxHp > 0 then foe.hp / foe.maxHp else 0)
+			foeHpText.Text = `{foe.hp}/{foe.maxHp}`
+			local codes: { string } = {}
+			for _, status in foe.statuses do
+				table.insert(codes, STATUS_SHORT[status.id] or status.id)
+			end
+			foeStatus.Text = if #codes > 0 then table.concat(codes, " ")
+				elseif snapshot.stageTag == "Night" then "NIGHT"
+				else ""
+		end
+		local intent = snapshot.enemyIntents[1]
+		nextBox.Visible = intent ~= nil and snapshot.outcome == "InProgress"
+		if intent then
+			local when = if intent.landingTurn <= snapshot.turn then "NOW" else `T{intent.landingTurn}`
+			nextLine1.Text = `{string.upper(intent.label)} {when}`
+			local who = if intent.targetId == intent.actorId then "SELF" else shortName(snapshot, intent.targetId)
+			local power = math.round(intent.estimatedPower)
+			nextLine2.Text = if power > 0 then `NEXT > {who} PWR {power}` else `NEXT > {who}`
+		end
+
+		-- Party.
+		local companion = snapshot.companion
+		for i, view in partyViews do
+			local actor = party[i]
+			if actor then
+				local name = shortName(snapshot, actor.id)
+				if companion and actor.id == companion.actorId then
+					name = `{name} [{TACTIC_SHORT[companion.tacticMode] or "?"}]`
+				end
+				view.name.Text = if actor.hp > 0 then name else `{name} DOWN`
+				view.name.TextColor3 = if actor.id == snapshot.activeActorId then Colors.Active else Colors.Text
+				view.hp.Text = `{actor.hp}/{actor.maxHp}`
+				view.setHp(if actor.maxHp > 0 then actor.hp / actor.maxHp else 0)
+			else
+				view.name.Text = ""
+				view.hp.Text = ""
+				view.setHp(0)
+			end
+		end
+		for mode, view in tacticButtons do
+			local current = companion ~= nil and companion.tacticMode == mode
+			local usable = companion ~= nil and companion.tacticLegality.canUse and not busy
+			view.fill.BackgroundColor3 = if current then Colors.Active elseif usable then Colors.Button else Colors.PanelLight
+			view.label.TextColor3 = if current then Colors.Ink elseif usable then Colors.Text else Colors.TextDim
+		end
+		local redirect = companion and companion.redirect
+		local limit = CombatTypes.Phase2Limits.CompanionRedirectsPerFight
+		if redirect then
+			local usable = redirect.legality.canUse and not busy
+			redirectLabel.Text = `SEC: REDIRECT {redirect.usesRemaining}/{limit}`
+			redirectFill.BackgroundColor3 = if usable then Night.Select else Colors.Disabled
+			redirectLabel.TextColor3 = if usable then Colors.Victory else Colors.TextDim
+		else
+			redirectLabel.Text = "SEC: REDIRECT -"
+			redirectFill.BackgroundColor3 = Colors.Disabled
+			redirectLabel.TextColor3 = Colors.TextDim
+		end
+		local _ = actors
+	end
+
+	partyTabButton.Activated:Connect(function()
+		rightTab = "Party"
+		rerender()
+	end)
+	foesTabButton.Activated:Connect(function()
+		rightTab = "Foes"
+		rerender()
+	end)
+
+	for mode, view in tacticButtons do
+		view.button.Activated:Connect(function()
 			local snapshot = lastSnapshot
 			local companion = snapshot and snapshot.companion
 			if busy or not companion or companion.tacticMode == mode then
 				return
 			end
 			if not companion.tacticLegality.canUse then
-				hoverInfo = reasonOf(companion.tacticLegality)
-				refreshInfo()
+				toast(reasonOf(companion.tacticLegality))
 				return
 			end
 			callbacks.onTactic(mode)
 		end)
 	end
 
-	local function renderCompanion(snapshot: Snapshot, actors: { [string]: Actor })
-		local companion = snapshot.companion
-		companionPanel.Visible = companion ~= nil
-		if not companion then
-			return
-		end
-		local actor = actors[companion.actorId]
-		companionName.Text = if actor then string.upper(actor.displayName) else "COMPANION"
-		companionHp.Text = if actor then `HP {actor.hp}/{actor.maxHp}` else ""
-		companionGuard.Visible = actor ~= nil and actor.isDefending
-		for mode, view in tacticButtons do
-			local current = companion.tacticMode == mode
-			local usable = companion.tacticLegality.canUse and not busy
-			view.fill.BackgroundColor3 = if current then Colors.Active elseif usable then Colors.Button else Colors.PanelLight
-			view.label.TextColor3 = if current then Colors.Ink elseif usable then Colors.Text else Colors.TextDim
-		end
-		local strength = math.round(CombatTypes.Phase2Limits.ManualAssistStrength * 100)
-		assistLabel.Text = if companion.assistAvailableThisRound then `ASSIST {strength}%` else "ASSIST USED"
-		assistLabel.TextColor3 = if companion.assistAvailableThisRound then Colors.Active else Colors.TextDim
-		local redirect = companion.redirect
-		if redirect then
-			local usable = redirect.legality.canUse and not busy
-			redirectLabel.Text = `REDIRECT {redirect.usesRemaining}/{CombatTypes.Phase2Limits.CompanionRedirectsPerFight}`
-			redirectFill.BackgroundColor3 = if usable then Colors.Button else Colors.Disabled
-			redirectLabel.TextColor3 = if usable then Colors.Text else Colors.TextDim
-		else
-			redirectLabel.Text = "REDIRECT -"
-			redirectFill.BackgroundColor3 = Colors.Disabled
-			redirectLabel.TextColor3 = Colors.TextDim
-		end
-	end
-
-	redirectButton.MouseEnter:Connect(function()
-		local snapshot = lastSnapshot
-		local companion = snapshot and snapshot.companion
-		if companion then
-			local redirect = companion.redirect
-			hoverInfo = if redirect then reasonOf(redirect.legality) else "No attack to redirect."
-			if hoverInfo == "" then
-				hoverInfo = "Guard Redirect (1/fight)"
-			end
-			refreshInfo()
-		end
-	end)
-	redirectButton.MouseLeave:Connect(function()
-		hoverInfo = nil
-		refreshInfo()
-	end)
 	redirectButton.Activated:Connect(function()
 		local snapshot = lastSnapshot
 		local companion = snapshot and snapshot.companion
@@ -1233,13 +1479,30 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 			return
 		end
 		if not companion.redirect then
-			hoverInfo = "No attack to redirect."
-			refreshInfo()
+			toast("No attack to redirect right now.")
 			return
 		end
-		pickerKind = "Redirect"
-		renderPicker()
+		centerMode = "Redirect"
+		selectedItem = nil
+		rerender()
 	end)
+
+	function renderDock(snapshot: Snapshot)
+		local actor = activeParty(snapshot)
+		-- A new fighter's turn starts back on ATTACK.
+		local key = if actor then `{snapshot.battleId}:{snapshot.turn}:{actor.id}` else nil
+		if key ~= menuActorKey then
+			menuActorKey = key
+			-- A fighter who can only skip (for example Stunned) opens on SKIP TURN.
+			menu = if actor and canSkip(snapshot) then "Guard" else "Attack"
+			centerMode = "Menu"
+			selectedItem = nil
+			hoverNote = nil
+		end
+		renderMenu(snapshot, actor)
+		renderCenter(snapshot)
+		renderSide(snapshot, actorMap(snapshot))
+	end
 
 	-- QTE ------------------------------------------------------------------------------
 	local function currentCheck(prompt: QtePrompt): (number?, any)
@@ -1253,7 +1516,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 	local function sendChoice(input: QteInput)
 		local snapshot = lastSnapshot
 		local prompt = snapshot and snapshot.qtePrompt
-		if busy or not prompt then
+		if busy or not prompt or prompt.mode == "Manual" then
 			return
 		end
 		local index = currentCheck(prompt)
@@ -1309,13 +1572,15 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 			then "CLICK, TAP OR SPACE WHEN THE RINGS MEET"
 			else "UNTIMED CUE: NO CLOCK, MATCH EACH CUE"
 		local hits = 0
-		-- Manual puts the check boxes on the left beside the ring.
-		local startX = if manual then 6 else (218 - (count * 40 - 2)) // 2
-		local checksY = if manual then 23 else 21
 		for i, box in qteChecks do
 			box.outline.Visible = i <= count
 			if i <= count then
-				box.outline.Position = UDim2.fromOffset(startX + (i - 1) * 40, checksY)
+				-- Manual stacks the check boxes on the left of the ring.
+				if manual then
+					box.outline.Position = UDim2.fromOffset(6, 21 + (i - 1) * 18)
+				else
+					box.outline.Position = UDim2.fromOffset((198 - (count * 40 - 2)) // 2 + (i - 1) * 40, 21)
+				end
 				local result = prompt.checkResults[i] or "Pending"
 				local isNext = prompt.nextCheckIndex == i
 				if result == "Hit" then
@@ -1332,20 +1597,15 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		local index, check = currentCheck(prompt)
 		ringArea.Visible = manual
 		ringHint.Visible = manual
-		qteTimerOuter.Visible = false
+		ringCount.Visible = manual
+		qtePromptLabel.Visible = not manual
 		for _, view in qteChoiceButtons do
 			view.box.Visible = not manual
 		end
 		if manual then
-			qtePromptLabel.Position = UDim2.fromOffset(4, 40)
-			qtePromptLabel.Size = UDim2.fromOffset(128, 10)
-			qtePromptLabel.TextXAlignment = Enum.TextXAlignment.Left
-			qtePromptLabel.Text = if index then `RING {index}/{count}   {hits} HIT` else `{hits}/{count} HIT`
+			ringCount.Text = if index then `RING {index}/{count}` else `{hits}/{count} HIT`
 			return
 		end
-		qtePromptLabel.Position = UDim2.fromOffset(4, 35)
-		qtePromptLabel.Size = UDim2.fromOffset(210, 10)
-		qtePromptLabel.TextXAlignment = Enum.TextXAlignment.Center
 		if index and check then
 			qtePromptLabel.Text = `{check.prompt}   ({hits}/{count} so far)`
 		else
@@ -1384,7 +1644,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 			-- Reset gap: earlier results stay on the check boxes.
 			ringTarget.Visible = false
 			ringApproach.Visible = false
-			ringHint.Text = if index == 1 then "GET READY" else "NEXT RING..."
+			ringHint.Text = if index == 1 then "GET READY" else "NEXT..."
 			ringHint.TextColor3 = Colors.TextDim
 			return
 		end
@@ -1402,7 +1662,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 			ringHint.Text = "NOW!"
 			ringHint.TextColor3 = Colors.Active
 		elseif t < opens then
-			ringHint.Text = "CLICK / TAP / SPACE"
+			ringHint.Text = "WAIT..."
 			ringHint.TextColor3 = Colors.Text
 		else
 			ringHint.Text = "TOO LATE"
@@ -1430,7 +1690,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		end
 		if key == Enum.KeyCode.A or key == Enum.KeyCode.Left then
 			sendChoice("Left")
-		elseif key == Enum.KeyCode.S or key == Enum.KeyCode.Down or key == Enum.KeyCode.Space or key == Enum.KeyCode.Up then
+		elseif key == Enum.KeyCode.S or key == Enum.KeyCode.Down or key == Enum.KeyCode.Up then
 			sendChoice("Center")
 		elseif key == Enum.KeyCode.D or key == Enum.KeyCode.Right then
 			sendChoice("Right")
@@ -1438,14 +1698,6 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 	end))
 
 	-- QTE mode toggle ----------------------------------------------------------------
-	qteModeButton.MouseEnter:Connect(function()
-		hoverInfo = "Manual / Auto-Good / Untimed Cue"
-		refreshInfo()
-	end)
-	qteModeButton.MouseLeave:Connect(function()
-		hoverInfo = nil
-		refreshInfo()
-	end)
 	qteModeButton.Activated:Connect(function()
 		local snapshot = lastSnapshot
 		if busy or not snapshot or snapshot.qtePrompt or snapshot.outcome ~= "InProgress" then
@@ -1469,9 +1721,6 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 			bannerSub.Text = "The sandbox is safe to retry."
 		else
 			banner.Visible = false
-		end
-		if snapshot.outcome ~= "InProgress" then
-			closePicker()
 		end
 	end
 
@@ -1534,19 +1783,17 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		local sameBattle = previous ~= nil and previous.battleId == snapshot.battleId
 		if not sameBattle then
 			lastLogCount = #snapshot.log
-			closePicker()
+			menuActorKey = nil
+			rightTab = "Foes"
 		end
 		lastSnapshot = snapshot
 
 		renderStage(snapshot)
-		renderTop(snapshot)
+		renderCorners(snapshot)
 		renderFighters(snapshot, actors)
 		renderIntent(snapshot, actors)
-		renderActions(snapshot)
-		renderBelt(snapshot)
-		renderCompanion(snapshot, actors)
+		renderDock(snapshot)
 		renderQte(snapshot)
-		renderPicker()
 		renderOutcome(snapshot)
 
 		if sameBattle then
@@ -1568,12 +1815,8 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		busy = value
 		local snapshot = lastSnapshot
 		if snapshot then
-			renderTop(snapshot)
-			renderActions(snapshot)
-			renderBelt(snapshot)
-			renderCompanion(snapshot, actorMap(snapshot))
+			renderDock(snapshot)
 			renderQte(snapshot)
-			renderPicker()
 		end
 	end
 
