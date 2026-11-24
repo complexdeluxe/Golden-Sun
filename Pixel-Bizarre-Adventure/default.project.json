@@ -1,0 +1,39 @@
+{
+  "name": "Pixel's Bizarre Adventure",
+  "serveAddress": "127.0.0.1",
+  "servePort": 34873,
+  "tree": {
+    "$className": "DataModel",
+    "$ignoreUnknownInstances": true,
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Shared": {
+        "$path": "src/shared",
+        "$ignoreUnknownInstances": true
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "Server": {
+        "$className": "Folder",
+        "$path": {
+          "optional": "src/server"
+        },
+        "$ignoreUnknownInstances": true
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "Client": {
+          "$className": "Folder",
+          "$path": {
+            "optional": "src/client"
+          },
+          "$ignoreUnknownInstances": true
+        }
+      }
+    }
+  }
+}
