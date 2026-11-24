@@ -70,11 +70,12 @@ export type SandboxSecondaryRequest = SandboxBattleRevision & (
 
 export type SandboxQteModeRequest = SandboxBattleRevision & { qteMode: CombatTypes.QteMode }
 
+-- Manual checks accept Confirm. Untimed cues accept a directional input.
 -- One input per check. Server time and the active challenge determine validity.
 export type SandboxQteCheckRequest = SandboxBattleRef & {
 	challengeId: string,
 	checkIndex: CombatTypes.QteCheckIndex,
-	input: CombatTypes.QteInput,
+	input: CombatTypes.QteSubmissionInput,
 }
 
 export type SandboxErrorCode = ErrorCode | "ChallengeExpired" | "InvalidCheck" | "QtePending"

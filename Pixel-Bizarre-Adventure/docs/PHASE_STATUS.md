@@ -49,6 +49,17 @@ Verified with Rojo 7.7.1, Lune 0.11.1, and luau-analyze 0.748. The combined Rojo
 
 A local Studio build with PR #10 booted into the real Night sandbox. The HUD showed 82/82 player HP with its mock badge hidden and rendered the result of three expired manual checks. Separate client calls verified the server's timeout events, Coffee Gum, End Turn, UV cancel without Exposure, and a landed 3/3 Untimed Cue for +15 Resolve. The Studio output reported asset-load warnings for placeholder content.
 
+## Ring QTE follow-up for the HUD
+
+The isolated `codex/pba-ring-qte` branch serves the Manual ring contract. Pair it with the updated ring HUD for Studio playtesting. The verified Studio run above covers the earlier directional Manual HUD.
+
+- Use `workspace:GetServerTimeNow()` to render the active ring. Start the contraction at `approachStartsAtServerTime` and align the ring and target at `overlapAtServerTime`. Highlight the target from `opensAtServerTime` until `closesAtServerTime`. The current check becomes visible at its approach timestamp. Between rings, show prior check results.
+- Send `input = "Confirm"` with the current battle ID, challenge ID and check index for one mouse click, touch, or fresh Space press. Gate the gesture while the ring is active and consume it before any HUD button handles it. Use the server's `checkResults` for feedback.
+- A press between the approach start and the hit window scores a miss. The server accepts the window from opening inclusive to closing exclusive. At closing it advances unanswered checks as misses and publishes the snapshot. An input during the reset or for a previous check leaves the next ring pending.
+- Standard Manual has one ring and High-Risk Heavy has three. Untimed Cue keeps its directional choices. Ordinary Auto-Good runs directly at 1.00×, and a tagged High-Risk move still uses the Untimed Cue flow when Auto-Good is selected.
+
+The provisional schedule starts the first approach after 0.15 seconds for the prompt to arrive. The ring takes 1.15 seconds to reach overlap. The base scoring window is 0.75 seconds centered on overlap and grows by up to 0.30 seconds with Focus. The next ring starts 0.30 seconds after the previous window closes.
+
 ### Fixture tuning
 
-The sandbox uses fixed Speed values (12, 10, 8), a 25% low-HP threshold, a 2× Finisher and a 0.45-second base manual timing window with Focus scaling. These are playtest parameters. Untimed checks ask for the indicated input. Companion tactics record the current selection while both party fighters use manually selected actions. The current encounter has no Bonus Primary source. The mock's extra action on a perfect check is excluded from the server.
+The sandbox uses fixed Speed values (12, 10, 8), a 25% low-HP threshold and a 2× Finisher. These are playtest parameters. Untimed checks ask for the indicated input. Companion tactics record the current selection while both party fighters use manually selected actions. The current encounter has no Bonus Primary source. The mock's extra action on a perfect check is excluded from the server.

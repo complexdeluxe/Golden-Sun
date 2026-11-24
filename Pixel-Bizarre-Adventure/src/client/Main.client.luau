@@ -1,9 +1,14 @@
 --!strict
--- Phase 1 client entry point: the Build 1 Raining Carriage Crash tutorial.
+-- Client entry point.
 --
--- Flow: start the tutorial -> show the battle -> send each button press to the
--- server -> redraw from whatever snapshot comes back. On defeat the player can
--- retry for free. On victory they pick an Origin, which the server saves.
+-- Phase 1: the Build 1 Raining Carriage Crash tutorial. Start the tutorial ->
+-- show the battle -> send each button press to the server -> redraw from
+-- whatever snapshot comes back. On defeat the player can retry for free. On
+-- victory they pick an Origin, which the server saves.
+--
+-- Phase 2: once the Origin is saved, the victory banner offers the Black
+-- Sabbath Night sandbox (Combat HUD v2). For testing, set the workspace
+-- attribute PBA_StartInSandbox = true to skip straight to the sandbox.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,6 +20,7 @@ local RemoteContract = require(ReplicatedStorage.Shared.Contracts.RemoteContract
 local SaveTypes = require(ReplicatedStorage.Shared.Contracts.SaveTypes)
 local TutorialConnection = require(script.Parent.Tutorial.TutorialConnection)
 local BattleViewport = require(script.Parent.Battle.BattleViewport)
+local SandboxController = require(script.Parent.Sandbox.SandboxController)
 
 local START_RETRY_SECONDS = 2
 local START_ATTEMPTS = 5
@@ -23,6 +29,11 @@ local player = Players.LocalPlayer
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "PixelBattle"
 screenGui.Parent = player:WaitForChild("PlayerGui")
+
+if workspace:GetAttribute("PBA_StartInSandbox") == true then
+	SandboxController.run(screenGui)
+	return
+end
 
 local connection = TutorialConnection.connect()
 
@@ -99,6 +110,14 @@ view = BattleViewport.new(screenGui, {
 			end
 			redraw()
 		end)
+	end,
+	onOpenSandbox = function()
+		if busy then
+			return
+		end
+		busy = true
+		view:destroy()
+		task.spawn(SandboxController.run, screenGui)
 	end,
 })
 view:setMock(connection.isMock)

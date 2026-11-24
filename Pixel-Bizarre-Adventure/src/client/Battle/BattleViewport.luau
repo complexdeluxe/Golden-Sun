@@ -37,6 +37,9 @@ export type Callbacks = {
 	onAction: (moveId: MoveId, targetId: string?) -> (),
 	onRetry: () -> (),
 	onChooseOrigin: (origin: SaveTypes.Origin) -> (),
+	-- Optional: after the Origin is saved, the victory banner offers the
+	-- Phase 2 Black Sabbath sandbox.
+	onOpenSandbox: (() -> ())?,
 }
 
 type FighterView = {
@@ -198,6 +201,7 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 	local updateTargetNames: () -> ()
 	local selectedTargetId: string? = nil
 	local lastSnapshot: CombatSnapshot? = nil
+	local lastProfile: Profile? = nil
 	local lastLogCount = 0
 	local busy = false
 	local originShown = false
@@ -511,7 +515,8 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 			bannerTitle.TextColor3 = Colors.Victory
 			if profile.origin ~= nil then
 				bannerSub.Text = `ORIGIN SAVED: {OriginSelect.displayName(profile.origin)}`
-				bannerButtonBox.Visible = false
+				bannerButton.Text = "NIGHT SANDBOX"
+				bannerButtonBox.Visible = callbacks.onOpenSandbox ~= nil
 			else
 				bannerSub.Text = "Choose how your story begins."
 				bannerButton.Text = "CHOOSE ORIGIN"
@@ -540,6 +545,11 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 		end
 		if snapshot.outcome == "Defeat" then
 			callbacks.onRetry()
+		elseif snapshot.outcome == "Victory" and lastProfile ~= nil and lastProfile.origin ~= nil then
+			local openSandbox = callbacks.onOpenSandbox
+			if openSandbox then
+				openSandbox()
+			end
 		elseif snapshot.outcome == "Victory" then
 			originShown = true
 			banner.Visible = false
@@ -574,6 +584,7 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 		renderIntents(snapshot, actors)
 		renderActions(snapshot)
 		renderLog(snapshot)
+		lastProfile = profile
 		renderOutcome(snapshot, profile)
 
 		-- Flash anyone who took damage since the last snapshot we drew.

@@ -11,6 +11,10 @@ local PLAYER = "player"
 local COMPANION = "companion"
 local SABBATH = "black_sabbath"
 local ALLOWED: Combat.ActionLegality = { canUse = true }
+local RING_LEAD_SECONDS = 0.15
+local RING_APPROACH_SECONDS = 1.15
+local RING_HIT_WINDOW_SECONDS = 0.75
+local RING_RESET_SECONDS = 0.30
 
 type Actor = {
 	view: Combat.SandboxActorState,
@@ -28,18 +32,16 @@ type Actor = {
 
 type Challenge = {
 	id: string,
-	mode: "Manual" | "UntimedCue",
-	kind: "Standard" | "HighRiskThreeCheck",
 	move: Encounter.Move,
 	actorId: string,
 	targetId: string,
-	cues: { Combat.QteInput },
-	opens: { number },
-	closes: { number },
 	results: { Combat.QteCheckResult },
 	nextIndex: number,
 	grade: number,
-}
+} & (
+	{ mode: "Manual", kind: "Standard" | "HighRiskThreeCheck", rings: { Combat.ManualQteCheck } }
+	| { mode: "UntimedCue", kind: "HighRiskThreeCheck", cues: { Combat.QteInput } }
+)
 
 export type State = {
 	id: string,
@@ -199,7 +201,7 @@ local function resolvePrimary(state: State, actor: Actor, target: Actor, move: E
 		return
 	end
 
-	local manualPerfect = challenge ~= nil and challenge.mode == "Manual" and grade == #challenge.cues
+	local manualPerfect = challenge ~= nil and challenge.mode == "Manual" and grade == #challenge.results
 	local interrupted = canInterrupt(state, target) and (move.id == "HamonInterrupt" or (highRisk and grade == 3))
 	local timing = if highRisk then Heavy.timingByGrade[grade or 0]
 		elseif grade == nil then 1 elseif grade == 1 then 1.10 else 0.90
@@ -534,21 +536,16 @@ end
 
 local function promptView(challenge: Challenge?): Combat.QtePrompt?
 	if not challenge then return nil end
-	local checks: { Combat.UntimedQteCheck } = {}
-	local manualChecks: { Combat.ManualQteCheck } = {}
-	for index, cue in challenge.cues do
-		local prompt = "Press " .. string.upper(cue)
-		if challenge.mode == "Manual" then
-			table.insert(manualChecks, {
-				index = index, prompt = prompt, choices = table.clone(Encounter.Choices),
-				opensAtServerTime = challenge.opens[index], closesAtServerTime = challenge.closes[index],
-			})
-		else
-			table.insert(checks, { index = index, prompt = prompt, choices = table.clone(Encounter.Choices) })
-		end
-	end
 	if challenge.mode == "Manual" then
+		local manualChecks: { Combat.ManualQteCheck } = {}
+		for index, ring in challenge.rings do
+			manualChecks[index] = table.clone(ring)
+		end
 		return { id = challenge.id, mode = "Manual", kind = challenge.kind, checks = manualChecks, checkResults = table.clone(challenge.results), nextCheckIndex = challenge.nextIndex }
+	end
+	local checks: { Combat.UntimedQteCheck } = {}
+	for index, cue in challenge.cues do
+		checks[index] = { index = index, prompt = "Press " .. string.upper(cue), choices = table.clone(Encounter.Choices) }
 	end
 	return { id = challenge.id, mode = "UntimedCue", kind = "HighRiskThreeCheck", checks = checks, checkResults = table.clone(challenge.results), nextCheckIndex = challenge.nextIndex }
 end
@@ -664,21 +661,41 @@ end
 
 local function beginChallenge(state: State, mode: "Manual" | "UntimedCue", move: Encounter.Move, actor: Actor, target: Actor)
 	local kind: "Standard" | "HighRiskThreeCheck" = if move.qte == "HighRiskThreeCheck" then "HighRiskThreeCheck" else "Standard"
-	local qte: Challenge = {
-		id = state.id .. ":qte:" .. tostring(state.revision), mode = mode, kind = kind, move = move,
-		actorId = actor.view.id, targetId = target.view.id, cues = {}, opens = {}, closes = {},
-		results = {}, nextIndex = 1, grade = 0,
-	}
-	local warmup = 0.65
-	local window = 0.45 + math.min(150, actor.focus) / 500
-	local now = state.clock()
-	for i = 1, (if kind == "HighRiskThreeCheck" then 3 else 1) do
-		qte.cues[i] = Encounter.Choices[math.floor(state.random() * #Encounter.Choices) + 1]
-		qte.results[i] = "Pending"
-		qte.opens[i] = now + warmup + (i - 1) * (window + 0.40)
-		qte.closes[i] = qte.opens[i] + window
+	local count = if kind == "HighRiskThreeCheck" then 3 else 1
+	local id = state.id .. ":qte:" .. tostring(state.revision)
+	local results = table.create(count, "Pending" :: Combat.QteCheckResult)
+	if mode == "Manual" then
+		local rings: { Combat.ManualQteCheck } = {}
+		local halfWindow = (RING_HIT_WINDOW_SECONDS + math.clamp(actor.focus, 0, 150) / 500) / 2
+		local startsAt = state.clock() + RING_LEAD_SECONDS
+		for index = 1, count do
+			local overlapAt = startsAt + RING_APPROACH_SECONDS
+			local closesAt = overlapAt + halfWindow
+			rings[index] = {
+				index = index,
+				approachStartsAtServerTime = startsAt,
+				overlapAtServerTime = overlapAt,
+				opensAtServerTime = overlapAt - halfWindow,
+				closesAtServerTime = closesAt,
+			}
+			startsAt = closesAt + RING_RESET_SECONDS
+		end
+		state.qte = {
+			id = id, mode = "Manual" :: "Manual", kind = kind, move = move, actorId = actor.view.id, targetId = target.view.id,
+			rings = rings, results = results, nextIndex = 1, grade = 0,
+		}
+		return
 	end
-	state.qte = qte
+
+	local cues: { Combat.QteInput } = {}
+	for index = 1, count do
+		cues[index] = Encounter.Choices[math.floor(state.random() * #Encounter.Choices) + 1]
+	end
+	state.qte = {
+		id = id, mode = "UntimedCue" :: "UntimedCue", kind = "HighRiskThreeCheck" :: "HighRiskThreeCheck",
+		move = move, actorId = actor.view.id, targetId = target.view.id,
+		cues = cues, results = results, nextIndex = 1, grade = 0,
+	}
 end
 
 function Battle.submitPrimary(state: State, request: Remote.SandboxPrimaryRequest): Remote.SandboxResponse
@@ -812,7 +829,7 @@ local function checkResult(state: State, challenge: Challenge, hit: boolean)
 	challenge.results[challenge.nextIndex] = if hit then "Hit" else "Miss"
 	if hit then challenge.grade += 1 end
 	challenge.nextIndex += 1
-	if challenge.nextIndex > #challenge.cues then
+	if challenge.nextIndex > #challenge.results then
 		state.qte = nil
 		resolvePrimary(state, state.actors[challenge.actorId], state.actors[challenge.targetId], challenge.move, challenge)
 	end
@@ -820,15 +837,14 @@ end
 
 function Battle.nextDeadline(state: State): number?
 	local challenge = state.qte
-	return if challenge and challenge.mode == "Manual" then challenge.closes[challenge.nextIndex] else nil
+	return if challenge and challenge.mode == "Manual" then challenge.rings[challenge.nextIndex].closesAtServerTime else nil
 end
 
-function Battle.expireChecks(state: State): boolean
+local function expireChecksAt(state: State, now: number): boolean
 	local challenge = state.qte
 	if not challenge or challenge.mode ~= "Manual" then return false end
-	local now = state.clock()
 	local changed = false
-	while state.qte == challenge and now >= challenge.closes[challenge.nextIndex] do
+	while state.qte == challenge and now >= challenge.rings[challenge.nextIndex].closesAtServerTime do
 		checkResult(state, challenge, false)
 		changed = true
 	end
@@ -836,17 +852,28 @@ function Battle.expireChecks(state: State): boolean
 	return changed
 end
 
+function Battle.expireChecks(state: State): boolean
+	return expireChecksAt(state, state.clock())
+end
+
 function Battle.submitCheck(state: State, request: Remote.SandboxQteCheckRequest): Remote.SandboxResponse
-	Battle.expireChecks(state)
+	local receivedAt = state.clock()
+	expireChecksAt(state, receivedAt)
 	local challenge = state.qte
 	if state.id ~= request.battleId or not challenge or challenge.id ~= request.challengeId then
 		return reject(state, "ChallengeExpired", "That QTE is no longer active.")
 	end
 	local index = request.checkIndex
 	if index ~= challenge.nextIndex then return reject(state, "InvalidCheck", "Answer the current check in order.") end
-	local hit = request.input == challenge.cues[index]
-	if challenge.mode == "Manual" then hit = hit and state.clock() >= challenge.opens[index] end
-	checkResult(state, challenge, hit)
+	if challenge.mode == "Manual" then
+		local ring = challenge.rings[index]
+		if request.input ~= "Confirm" then return reject(state, "InvalidCheck", "Use Confirm for this timing check.") end
+		if receivedAt < ring.approachStartsAtServerTime then return reject(state, "InvalidCheck", "Wait for the next ring.") end
+		checkResult(state, challenge, receivedAt >= ring.opensAtServerTime)
+	else
+		if request.input == "Confirm" then return reject(state, "InvalidCheck", "Choose a direction for the cue.") end
+		checkResult(state, challenge, request.input == challenge.cues[index])
+	end
 	return commit(state)
 end
 

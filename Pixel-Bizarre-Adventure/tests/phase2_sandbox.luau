@@ -52,13 +52,20 @@ local function guardRound(state: Battle.State): Combat.SandboxSnapshot
 end
 
 local function check(state: Battle.State, prompt: Combat.QtePrompt, index: number, hit: boolean): Combat.SandboxSnapshot
-	if prompt.mode == "Manual" then now = prompt.checks[index].opensAtServerTime + 0.1 end
-	local text = prompt.checks[index].prompt
-	local required: Combat.QteInput = if string.find(text, "LEFT") then "Left"
-		elseif string.find(text, "RIGHT") then "Right" else "Center"
+	local input: Combat.QteSubmissionInput
+	if prompt.mode == "Manual" then
+		local ring = prompt.checks[index]
+		now = if hit then ring.overlapAtServerTime else ring.approachStartsAtServerTime
+		input = "Confirm"
+	else
+		local text = prompt.checks[index].prompt
+		local required: Combat.QteInput = if string.find(text, "LEFT") then "Left"
+			elseif string.find(text, "RIGHT") then "Right" else "Center"
+		input = if hit then required elseif required == "Left" then "Right" else "Left"
+	end
 	local response = Battle.submitCheck(state, {
 		battleId = state.id, challengeId = prompt.id, checkIndex = index,
-		input = if hit then required elseif required == "Left" then "Right" else "Left",
+		input = input,
 	})
 	return success(response)
 end
@@ -115,6 +122,46 @@ do
 	local state = fixture("Manual")
 	local prompt = assert(success(primary(state, "HighRiskHeavy")).qtePrompt)
 	assert(prompt.mode == "Manual")
+	local first = prompt.checks[1]
+	local second = prompt.checks[2]
+	assert(math.abs(first.overlapAtServerTime - first.approachStartsAtServerTime - 1.15) < 1e-8)
+	assert(math.abs(first.closesAtServerTime - first.opensAtServerTime - 0.75) < 1e-8)
+	assert(math.abs(second.approachStartsAtServerTime - first.closesAtServerTime - 0.30) < 1e-8)
+	local function submit(index: number, input: Combat.QteSubmissionInput): Remote.SandboxResponse
+		return Battle.submitCheck(state, { battleId = state.id, challengeId = prompt.id, checkIndex = index, input = input })
+	end
+
+	assert(not submit(1, "Confirm").ok)
+	now = first.opensAtServerTime
+	assert(not submit(1, "Center").ok)
+	assert(not submit(2, "Confirm").ok)
+	local good = assert(success(submit(1, "Confirm")).qtePrompt)
+	assert(good.nextCheckIndex == 2 and good.checkResults[1] == "Hit")
+	assert(not submit(1, "Confirm").ok)
+	assert(not submit(2, "Confirm").ok)
+	now = second.approachStartsAtServerTime
+	local early = assert(success(submit(2, "Confirm")).qtePrompt)
+	assert(early.checkResults[2] == "Miss" and early.nextCheckIndex == 3)
+	now = prompt.checks[3].closesAtServerTime
+	local late = submit(3, "Confirm")
+	assert(not late.ok and late.code == "ChallengeExpired")
+	assert(state.actors.player.view.resolve == 0 and state.qte == nil)
+end
+
+do
+	local state = fixture("UntimedCue")
+	local prompt = assert(success(primary(state, "HighRiskHeavy")).qtePrompt)
+	assert(prompt.mode == "UntimedCue")
+	local response = Battle.submitCheck(state, { battleId = state.id, challengeId = prompt.id, checkIndex = 1, input = "Confirm" })
+	assert(not response.ok and response.code == "InvalidCheck")
+	assert(Battle.snapshot(state).qtePrompt and Battle.nextDeadline(state) == nil)
+	assert(check(state, prompt, 1, true).qtePrompt)
+end
+
+do
+	local state = fixture("Manual")
+	local prompt = assert(success(primary(state, "HighRiskHeavy")).qtePrompt)
+	assert(prompt.mode == "Manual")
 	now = prompt.checks[1].closesAtServerTime
 	assert(Battle.expireChecks(state))
 	local nextPrompt = assert(Battle.snapshot(state).qtePrompt)
@@ -131,6 +178,7 @@ do
 	assert(state.assistUsed and not state.actors.player.view.bonusPrimaryAvailable)
 	finishTurn(state)
 	local second = assert(success(primary(state, "HeavyStrike")).qtePrompt)
+	assert(second.mode == "Manual" and #second.checks == 1 and second.kind == "Standard")
 	check(state, second, 1, true)
 	local assists = 0
 	for _, event in state.log do if event.kind == "Assist" then assists += 1 end end

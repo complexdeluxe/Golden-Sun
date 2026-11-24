@@ -127,7 +127,7 @@ bindBattle(routes.SubmitSandboxQteCheck.name, false, function(battle, payload)
 	local index = payload.checkIndex
 	local input = payload.input
 	if type(payload.challengeId) ~= "string" or (index ~= 1 and index ~= 2 and index ~= 3)
-		or (input ~= "Left" and input ~= "Center" and input ~= "Right") then
+		or (input ~= "Left" and input ~= "Center" and input ~= "Right" and input ~= "Confirm") then
 		return invalid("Invalid challenge, check, or input.")
 	end
 	return Battle.submitCheck(battle, payload :: any)
