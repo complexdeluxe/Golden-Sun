@@ -91,6 +91,7 @@ export type QteCheckIndex = number
 -- A grade is the number of successful checks, from 0 through 3.
 export type QteGrade = number
 export type QteInput = "Left" | "Center" | "Right"
+export type QteSubmissionInput = QteInput | "Confirm"
 export type TacticMode = "Aggressive" | "Defensive" | "Support"
 export type PrimarySlot = "Primary" | "BonusPrimary"
 export type SandboxMoveId = "BasicStrike" | "HeavyStrike" | "HighRiskHeavy" | "Defend" | "HamonInterrupt" | "Finisher"
@@ -206,8 +207,8 @@ export type ExposureView = {
 
 export type ManualQteCheck = {
 	index: QteCheckIndex,
-	prompt: string,
-	choices: { QteInput },
+	approachStartsAtServerTime: number,
+	overlapAtServerTime: number,
 	opensAtServerTime: number,
 	closesAtServerTime: number,
 }
