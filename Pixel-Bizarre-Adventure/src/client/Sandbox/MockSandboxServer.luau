@@ -47,9 +47,11 @@ local STEPS: { "LighterStrike" | "ShadowGrabWindup" | "ShadowGrabLanding" | "Fad
 local CHOICES: { QteInput } = { "Left", "Center", "Right" }
 
 local ENEMY_DELAY = 0.9
-local MANUAL_LEAD = 0.9
-local MANUAL_WINDOW = 1.0
-local MANUAL_GAP = 0.35
+-- Manual ring schedule, matching the server's provisional timing.
+local RING_LEAD = 0.15
+local RING_APPROACH = 1.15
+local RING_WINDOW = 0.75
+local RING_RESET = 0.30
 local STAMINA_REGEN = 2
 local DEFEND_TAKEN = 0.6
 local BASE_DODGE = 8
@@ -108,6 +110,7 @@ type Pending = {
 	moveId: SandboxMoveId,
 	targetId: string,
 	answers: { QteInput },
+	starts: { number },
 	opens: { number },
 	closes: { number },
 	manual: boolean,
@@ -1158,21 +1161,27 @@ local function startQte(battle: Battle, actor: Actor, moveId: SandboxMoveId, tar
 	battle.challengeCount += 1
 	local id = `qte-{battle.id}-{battle.challengeCount}`
 	local answers: { QteInput } = {}
+	local starts: { number } = {}
+	local overlaps: { number } = {}
 	local opens: { number } = {}
 	local closes: { number } = {}
 	local results: { QteCheckResult } = {}
-	local start = now() + MANUAL_LEAD
+	local start = now() + RING_LEAD
 	for index = 1, count do
 		answers[index] = CHOICES[battle.rng:NextInteger(1, #CHOICES)]
-		opens[index] = start + (index - 1) * (MANUAL_WINDOW + MANUAL_GAP)
-		closes[index] = opens[index] + MANUAL_WINDOW
+		starts[index] = start
+		overlaps[index] = start + RING_APPROACH
+		opens[index] = overlaps[index] - RING_WINDOW / 2
+		closes[index] = overlaps[index] + RING_WINDOW / 2
 		results[index] = "Pending"
+		start = closes[index] + RING_RESET
 	end
 	battle.pending = {
 		actorId = actor.id,
 		moveId = moveId,
 		targetId = target.id,
 		answers = answers,
+		starts = starts,
 		opens = opens,
 		closes = closes,
 		manual = mode == "Manual",
@@ -1183,8 +1192,8 @@ local function startQte(battle: Battle, actor: Actor, moveId: SandboxMoveId, tar
 		for index = 1, count do
 			table.insert(checks, {
 				index = index,
-				prompt = `Press {string.upper(answers[index])} in the window!`,
-				choices = CHOICES,
+				approachStartsAtServerTime = starts[index],
+				overlapAtServerTime = overlaps[index],
 				opensAtServerTime = opens[index],
 				closesAtServerTime = closes[index],
 			})
@@ -1551,10 +1560,22 @@ function MockSandboxServer.SubmitSandboxQteCheck(request: RemoteContract.Sandbox
 	if index ~= prompt.nextCheckIndex or prompt.checkResults[index] ~= "Pending" then
 		return reject("InvalidCheck", "Wrong check.")
 	end
-	local correct = request.input == pending.answers[index]
+	local correct
 	if pending.manual then
 		local t = now()
-		correct = correct and t >= pending.opens[index] and t <= pending.closes[index]
+		if request.input ~= "Confirm" then
+			return reject("InvalidCheck", "Use Confirm for this timing check.")
+		end
+		if t < pending.starts[index] then
+			return reject("InvalidCheck", "Wait for the next ring.")
+		end
+		-- Late presses are already expired by the timer; early ones miss.
+		correct = t >= pending.opens[index] and t < pending.closes[index]
+	else
+		if request.input == "Confirm" then
+			return reject("InvalidCheck", "Choose a direction for the cue.")
+		end
+		correct = request.input == pending.answers[index]
 	end
 	prompt.checkResults[index] = if correct then "Hit" else "Miss"
 	if index >= #prompt.checkResults then

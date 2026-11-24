@@ -37,6 +37,7 @@ type PrimaryOption = CombatTypes.PrimaryOption
 type BeltItemView = CombatTypes.BeltItemView
 type QtePrompt = CombatTypes.QtePrompt
 type QteInput = CombatTypes.QteInput
+type QteSubmissionInput = CombatTypes.QteSubmissionInput
 type QteMode = CombatTypes.QteMode
 type TacticMode = CombatTypes.TacticMode
 type StatusId = CombatTypes.StatusId
@@ -67,7 +68,7 @@ export type Callbacks = {
 	onRedirect: (intentId: string, recipientId: string) -> (),
 	onEndTurn: () -> (),
 	onQteMode: (mode: QteMode) -> (),
-	onQteInput: (challengeId: string, checkIndex: number, input: QteInput) -> (),
+	onQteInput: (challengeId: string, checkIndex: number, input: QteSubmissionInput) -> (),
 	onRestart: () -> (),
 }
 
@@ -110,6 +111,11 @@ local PLATE_W = 64
 local MAX_MOVES = 6
 local FULL_LOG_LINES = 15
 local QTE_CHOICES: { QteInput } = { "Left", "Center", "Right" }
+-- Manual ring, in native pixels. The approach ring shrinks from RING_START to
+-- RING_TARGET between approachStartsAtServerTime and overlapAtServerTime.
+local RING_TARGET = 16
+local RING_START = 50
+local RING_MIN = 4
 
 local PARTY_SLOTS_X = { 2, 70 }
 local ENEMY_SLOT_X = 214
@@ -340,13 +346,42 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 	end
 	local qtePromptLabel = PixelUi.label(qteFill, "Prompt", 4, 35, 210, 10, "", Colors.Text, Enum.TextXAlignment.Center)
 	local qteTimerOuter, setQteTimer = PixelUi.bar(qteFill, "Timer", 30, 46, 158, 6, Colors.Active, Colors.PanelLight)
-	type ChoiceButton = { fill: Frame, label: TextLabel, button: TextButton }
+	type ChoiceButton = { box: Frame, fill: Frame, label: TextLabel, button: TextButton }
 	local qteChoiceButtons: { ChoiceButton } = {}
 	for i, input in QTE_CHOICES do
 		local box, fill, label = chip(qteFill, input, 8 + (i - 1) * 70, 55, 64, 16, string.upper(input), Colors.Button)
 		local button = PixelUi.button(box, "Press", 0, 0, 64, 16, "")
-		table.insert(qteChoiceButtons, { fill = fill, label = label, button = button })
+		table.insert(qteChoiceButtons, { box = box, fill = fill, label = label, button = button })
 	end
+
+	-- Manual ring: a fixed target ring and an approach ring that closes on it.
+	local function circle(parent: Instance, name: string, color: Color3): (Frame, UIStroke)
+		local ring = PixelUi.frame(parent, name, 0, 0, RING_TARGET, RING_TARGET)
+		ring.AnchorPoint = Vector2.new(0.5, 0.5)
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0.5, 0)
+		corner.Parent = ring
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 1
+		stroke.Color = color
+		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		stroke.Parent = ring
+		return ring, stroke
+	end
+	local ringArea = PixelUi.frame(qteFill, "Ring", 134, 20, 82, 54)
+	ringArea.ClipsDescendants = true
+	local ringTarget, ringTargetStroke = circle(ringArea, "Target", Colors.Text)
+	ringTarget.Position = UDim2.fromOffset(41, 27)
+	local ringApproach, ringApproachStroke = circle(ringArea, "Approach", Colors.Victory)
+	ringApproach.Position = UDim2.fromOffset(41, 27)
+	ringApproachStroke.Thickness = 2
+	local ringHint = PixelUi.label(qteFill, "RingHint", 4, 54, 128, 10, "", Colors.TextDim)
+
+	-- While a Manual ring is up, this invisible layer takes every click or tap
+	-- on the HUD so it counts as one Confirm instead of pressing a button.
+	local confirmCatcher = PixelUi.button(hud, "QteConfirm", 0, 0, PixelUi.NATIVE_WIDTH, PixelUi.NATIVE_HEIGHT, "")
+	confirmCatcher.ZIndex = 9
+	confirmCatcher.Visible = false
 
 	-- Night banner, feedback pop, outcome banner, toast.
 	local nightBanner, _nightFill = PixelUi.box(hud, "NightBanner", 60, 56, 200, 30, Night.Tag)
@@ -1234,23 +1269,53 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		end)
 	end
 
+	-- One Confirm per gesture, and at most one per ring. Presses before the
+	-- current ring appears (the reset gap) are ignored here; the server scores a
+	-- press during the approach but before the window as a miss.
+	local lastConfirmKey: string? = nil
+	local function sendConfirm()
+		local snapshot = lastSnapshot
+		local prompt = snapshot and snapshot.qtePrompt
+		if busy or not prompt or prompt.mode ~= "Manual" then
+			return
+		end
+		local index, check = currentCheck(prompt)
+		if index == nil or check == nil then
+			return
+		end
+		if workspace:GetServerTimeNow() < check.approachStartsAtServerTime then
+			return
+		end
+		local key = `{prompt.id}#{index}`
+		if lastConfirmKey == key then
+			return
+		end
+		lastConfirmKey = key
+		callbacks.onQteInput(prompt.id, index, "Confirm")
+	end
+	confirmCatcher.Activated:Connect(sendConfirm)
+
 	local function renderQte(snapshot: Snapshot)
 		local prompt = snapshot.qtePrompt
 		qtePanel.Visible = prompt ~= nil
+		local manual = prompt ~= nil and prompt.mode == "Manual"
+		confirmCatcher.Visible = manual and prompt ~= nil and prompt.nextCheckIndex ~= nil
 		if not prompt then
 			return
 		end
 		local count = #prompt.checks
 		qteTitle.Text = if prompt.kind == "HighRiskThreeCheck" then "HIGH-RISK HEAVY  3 CHECKS" else "HEAVY STRIKE TIMING"
-		qteModeHint.Text = if prompt.mode == "Manual"
-			then "MANUAL: PRESS INSIDE THE GREEN WINDOW (A S D)"
+		qteModeHint.Text = if manual
+			then "CLICK, TAP OR SPACE WHEN THE RINGS MEET"
 			else "UNTIMED CUE: NO CLOCK, MATCH EACH CUE"
 		local hits = 0
-		local startX = (218 - (count * 40 - 2)) // 2
+		-- Manual puts the check boxes on the left beside the ring.
+		local startX = if manual then 6 else (218 - (count * 40 - 2)) // 2
+		local checksY = if manual then 23 else 21
 		for i, box in qteChecks do
 			box.outline.Visible = i <= count
 			if i <= count then
-				box.outline.Position = UDim2.fromOffset(startX + (i - 1) * 40, 21)
+				box.outline.Position = UDim2.fromOffset(startX + (i - 1) * 40, checksY)
 				local result = prompt.checkResults[i] or "Pending"
 				local isNext = prompt.nextCheckIndex == i
 				if result == "Hit" then
@@ -1265,12 +1330,27 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 			end
 		end
 		local index, check = currentCheck(prompt)
+		ringArea.Visible = manual
+		ringHint.Visible = manual
+		qteTimerOuter.Visible = false
+		for _, view in qteChoiceButtons do
+			view.box.Visible = not manual
+		end
+		if manual then
+			qtePromptLabel.Position = UDim2.fromOffset(4, 40)
+			qtePromptLabel.Size = UDim2.fromOffset(128, 10)
+			qtePromptLabel.TextXAlignment = Enum.TextXAlignment.Left
+			qtePromptLabel.Text = if index then `RING {index}/{count}   {hits} HIT` else `{hits}/{count} HIT`
+			return
+		end
+		qtePromptLabel.Position = UDim2.fromOffset(4, 35)
+		qtePromptLabel.Size = UDim2.fromOffset(210, 10)
+		qtePromptLabel.TextXAlignment = Enum.TextXAlignment.Center
 		if index and check then
 			qtePromptLabel.Text = `{check.prompt}   ({hits}/{count} so far)`
 		else
 			qtePromptLabel.Text = `{hits}/{count}`
 		end
-		qteTimerOuter.Visible = prompt.mode == "Manual"
 		local usable = not busy and index ~= nil
 		for i, view in qteChoiceButtons do
 			local input = QTE_CHOICES[i]
@@ -1280,39 +1360,74 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		end
 	end
 
-	-- Manual windows tick on the server clock (workspace:GetServerTimeNow()).
+	-- The ring animates on the server clock (workspace:GetServerTimeNow()) so it
+	-- matches the timestamps the server scores against.
 	table.insert(connections, RunService.Heartbeat:Connect(function()
 		local snapshot = lastSnapshot
 		local prompt = snapshot and snapshot.qtePrompt
 		if not prompt or prompt.mode ~= "Manual" then
 			return
 		end
-		local _, check = currentCheck(prompt)
-		if not check then
-			setQteTimer(0)
+		local index, check = currentCheck(prompt)
+		if not index or not check then
+			ringTarget.Visible = false
+			ringApproach.Visible = false
+			ringHint.Text = "..."
 			return
 		end
 		local t = workspace:GetServerTimeNow()
+		local starts: number = check.approachStartsAtServerTime
+		local overlap: number = check.overlapAtServerTime
 		local opens: number = check.opensAtServerTime
 		local closes: number = check.closesAtServerTime
-		if t < opens then
-			setQteTimer(0)
-			qteTimerOuter.BackgroundColor3 = Colors.Ink
-		elseif t <= closes then
-			-- Bar drains as the window closes.
-			setQteTimer(1 - (t - opens) / math.max(0.001, closes - opens))
-			qteTimerOuter.BackgroundColor3 = Colors.Active
+		if t < starts then
+			-- Reset gap: earlier results stay on the check boxes.
+			ringTarget.Visible = false
+			ringApproach.Visible = false
+			ringHint.Text = if index == 1 then "GET READY" else "NEXT RING..."
+			ringHint.TextColor3 = Colors.TextDim
+			return
+		end
+		ringTarget.Visible = true
+		ringApproach.Visible = true
+		local progress = (overlap - t) / math.max(0.001, overlap - starts)
+		local size = math.max(RING_MIN, math.round(RING_TARGET + (RING_START - RING_TARGET) * progress))
+		ringApproach.Size = UDim2.fromOffset(size, size)
+		-- Open from opensAt (inclusive) to closesAt (exclusive), like the server.
+		local inWindow = t >= opens and t < closes
+		ringTarget.BackgroundTransparency = if inWindow then 0.35 else 1
+		ringTarget.BackgroundColor3 = Colors.Active
+		ringTargetStroke.Color = if inWindow then Colors.Active else Colors.Text
+		if inWindow then
+			ringHint.Text = "NOW!"
+			ringHint.TextColor3 = Colors.Active
+		elseif t < opens then
+			ringHint.Text = "CLICK / TAP / SPACE"
+			ringHint.TextColor3 = Colors.Text
 		else
-			setQteTimer(0)
-			qteTimerOuter.BackgroundColor3 = Colors.Defeat
+			ringHint.Text = "TOO LATE"
+			ringHint.TextColor3 = Night.Miss
 		end
 	end))
 
 	table.insert(connections, UserInputService.InputBegan:Connect(function(input, processed)
-		if processed or not qteActive() then
+		local snapshot = lastSnapshot
+		local prompt = snapshot and snapshot.qtePrompt
+		if not prompt then
 			return
 		end
 		local key = input.KeyCode
+		if prompt.mode == "Manual" then
+			-- Space is the keyboard Confirm. A focused HUD button can mark it as
+			-- processed, so only a focused text box blocks it.
+			if key == Enum.KeyCode.Space and UserInputService:GetFocusedTextBox() == nil then
+				sendConfirm()
+			end
+			return
+		end
+		if processed then
+			return
+		end
 		if key == Enum.KeyCode.A or key == Enum.KeyCode.Left then
 			sendChoice("Left")
 		elseif key == Enum.KeyCode.S or key == Enum.KeyCode.Down or key == Enum.KeyCode.Space or key == Enum.KeyCode.Up then
