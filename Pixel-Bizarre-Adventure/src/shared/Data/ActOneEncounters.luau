@@ -21,15 +21,15 @@ local routes: { [Save.Origin]: Route } = {
 	Part1_Hamon = {
 		waves = {
 			F1 = {
-				{ id = "ogre_brawler", label = "Ogre Street Brawler", jabLabel = "Street Jab", heavyLabel = "Heavy Hook" },
+				{ id = "ogre_brawler", spriteKey = "OgreBrawlerIdle", label = "Ogre Street Brawler", jabLabel = "Street Jab", heavyLabel = "Heavy Hook" },
 			},
 			F2 = {
-				{ id = "ogre_knifeman", label = "Ogre Street Knifeman", jabLabel = "Knife Jab", heavyLabel = "Bleeding Slash",
+				{ id = "ogre_knifeman", spriteKey = "OgreKnifemanIdle", label = "Ogre Street Knifeman", jabLabel = "Knife Jab", heavyLabel = "Bleeding Slash",
 					hp = 52, jabPower = 8, heavyPower = 15, heavyStatus = "Bleed" },
 			},
 			D1 = {
-				{ id = "ogre_lookout", label = "Ogre Street Lookout", jabLabel = "Street Jab", heavyLabel = "Rally Rush", hp = 30, jabPower = 6, heavyPower = 12 },
-				{ id = "speedwagon", label = "Speedwagon", jabLabel = "Street Counter", heavyLabel = "Blade Hat Toss", hp = 54, jabPower = 8, heavyPower = 16 },
+				{ id = "ogre_lookout", spriteKey = "OgreLookoutIdle", label = "Ogre Street Lookout", jabLabel = "Street Jab", heavyLabel = "Rally Rush", hp = 30, jabPower = 6, heavyPower = 12 },
+				{ id = "speedwagon", spriteKey = "CompanionIdle", label = "Speedwagon", jabLabel = "Street Counter", heavyLabel = "Blade Hat Toss", hp = 54, jabPower = 8, heavyPower = 16 },
 			},
 		},
 		recruit = { companionId = "speedwagon", label = "Speedwagon", description = "A streetwise ally from Ogre Street.", spriteKey = "CompanionIdle" },
@@ -37,18 +37,18 @@ local routes: { [Save.Origin]: Route } = {
 	Part3_Stand = {
 		waves = {
 			F1 = {
-				{ id = "jail_thug", label = "Stand-Awakened Jail Thug", jabLabel = "Stand Jab", heavyLabel = "Cell Rush" },
+				{ id = "jail_thug", spriteKey = "JailThugIdle", label = "Stand-Awakened Jail Thug", jabLabel = "Stand Jab", heavyLabel = "Cell Rush" },
 			},
 			F2 = {
-				{ id = "kakyoin", label = "Kakyoin", jabLabel = "Emerald Splash", heavyLabel = "Barrier Snare",
+				{ id = "kakyoin", spriteKey = "KakyoinIdle", label = "Kakyoin", jabLabel = "Emerald Splash", heavyLabel = "Barrier Snare",
 					hp = 52, jabPower = 8, heavyPower = 14, heavyStatus = "Stun" },
 			},
 			D1 = {
-				{ id = "harbor_duelist", label = "Harbor Sword Duelist", jabLabel = "Blade Tap", heavyLabel = "Windup Lunge", hp = 30, jabPower = 6, heavyPower = 12 },
-				{ id = "avdol", label = "Avdol", jabLabel = "Flame Jab", heavyLabel = "Fire Lane", hp = 54, jabPower = 8, heavyPower = 16 },
+				{ id = "harbor_duelist", spriteKey = "HarborDuelistIdle", label = "Harbor Sword Duelist", jabLabel = "Blade Tap", heavyLabel = "Windup Lunge", hp = 30, jabPower = 6, heavyPower = 12 },
+				{ id = "avdol", spriteKey = "AvdolIdle", label = "Avdol", jabLabel = "Flame Jab", heavyLabel = "Fire Lane", hp = 54, jabPower = 8, heavyPower = 16 },
 			},
 		},
-		recruit = { companionId = "avdol", label = "Avdol", description = "A Stand user who guided you through the Tiger Balm Garden spar." },
+		recruit = { companionId = "avdol", label = "Avdol", description = "A Stand user who guided you through the Tiger Balm Garden spar.", spriteKey = "AvdolIdle" },
 	},
 }
 

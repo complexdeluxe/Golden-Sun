@@ -1,6 +1,6 @@
 # Phase status
 
-**Active phase** — Phase 3 F2, D1 and recruitment integration.
+**Active phase** — Phase 3 merged; isolated persistence gate open. Phase 4 Core review requires fixes before contract integration.
 
 **Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement. The real Roblox DataStore restart check remains open as a separate follow-up.
 
@@ -10,10 +10,10 @@
 | 2B | Audited combat math and server sandbox | Merged and verified with Combat HUD v2 |
 | 2B client | Compact HUD and Manual ring QTE | Merged in PR #10 |
 | 3.1 | Creator, Hub, Act 1 map, inventory, and campaign routes | Merged in PR #13 |
-| 3.3 | Saved appearance, Hub economy, loadout, and campaign remotes | Draft server implementation |
-| 3.4 | Creator, Hub, bag, map, and results screens | PR #14, verified on the campaign mock |
-| Act combat | F1 battle, Results and replay on the campaign server | PR #17, Studio-tested |
-| Act 1 | F2, two-wave D1 and companion recruitment | Act 1 review branch |
+| 3.3 | Saved appearance, Hub economy, loadout, and campaign remotes | Merged via PR #18 |
+| 3.4 | Creator, Hub, bag, map, and results screens | Merged via PR #14 |
+| Act combat | F1 battle, Results and replay on the campaign server | Merged via PR #18 (includes #17) |
+| Act 1 | F2, two-wave D1 and companion recruitment | Merged via PR #18 |
 
 ## Campaign server handoff
 
@@ -120,3 +120,27 @@ The provisional schedule starts the first approach after 0.15 seconds for the pr
 ### Fixture tuning
 
 The sandbox uses fixed Speed values (12, 10, 8), a 25% low-HP threshold and a 2× Finisher. These are playtest parameters. Untimed checks ask for the indicated input. Companion tactics record the current selection while both party fighters use manually selected actions. The current encounter has no Bonus Primary source. The mock's extra action on a perfect check is excluded from the server.
+
+## 2026-11-25 merge and verification
+
+PR #18 (`e590b11`) was retargeted from the F1 branch to main and merged as `1cf724d`. PR #14 (`3153ec6`) was then merged as `460107d`. The merge preserves the shared Contracts, Core, Data and server tree from `e590b11`; Claude contributes only client files. The follow-up adds seven Act 1 fighter keys and seven Part 3 Stand sheet keys, binds all eight opponents, and gives Avdol's recruit `spriteKey = "AvdolIdle"`. Existing asset values are preserved; new IDs remain 0 pending uploads.
+
+### Rojo build
+
+PASS: Rojo 7.7.1 builds the combined client/server project.
+
+### Luau analysis
+
+PASS: Luau 0.748 strict analysis of all shared modules and tests. All 30 client/server sources compile; compilation is not full Roblox-aware type analysis.
+
+### Lune suites
+
+PASS: all six suites with Lune 0.11.1 — smoke, tutorial, phase2_contracts, phase2_sandbox, phase3_contracts, phase3_campaign.
+
+### Isolated DataStore restart
+
+OPEN: no real restart result is claimed. The connected cloud place was the shared PBA place (91723653990702), not an isolated persistence-test place. A combined local build is prepared. The test requires an isolated published place with Studio API access enabled, then two server sessions verifying appearance/color, Origin, Yen, inventory/loadout, clears and recruited companion. Prior in-memory Studio checks do not close this gate. No shared Team Create sync or publish was performed in this merge task.
+
+### Phase 4 economy review
+
+Reviewed local Antigravity branch `antigravity/phase4-economy-core` at `7cb2c8b`. Its existing Lune suite passes, but strict analysis fails and deterministic probes reproduce affix-budget overflow, zero-line T1 Legendary generation, and inconsistent FullBorg strain. Do not integrate into Phase 4 contracts yet. See [review and required fixes](PHASE4_ECONOMY_REVIEW.md).

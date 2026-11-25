@@ -94,6 +94,21 @@ export type AssetKey = "TutorialStage" | "PlayerIdle" | "DarioIdle" | "DarioWife
 	| "RomanColosseumStage"
 	| "RomeSanctumStage"
 
+	| "OgreBrawlerIdle"
+	| "OgreKnifemanIdle"
+	| "OgreLookoutIdle"
+	| "JailThugIdle"
+	| "HarborDuelistIdle"
+	| "KakyoinIdle"
+	| "AvdolIdle"
+	| "HierophantGreenSheet"
+	| "MagiciansRedSheet"
+	| "SilverChariotSheet"
+	| "StarPlatinumSheet"
+	| "TheWorldSheet"
+	| "EmperorSheet"
+	| "AnubisSheet"
+
 -- Asset 0 is an unset placeholder. Render a local fallback for it.
 local assets: { [AssetKey]: AssetId } = {
 	TutorialStage = "rbxassetid://0",
@@ -204,6 +219,20 @@ local assets: { [AssetKey]: AssetId } = {
 	RomeOutskirtsStage = "rbxassetid://0", -- [320x180] Part 5 F7 Rome Outskirts (Verified)
 	RomanColosseumStage = "rbxassetid://0", -- [320x180] Part 5 D3 Roman Colosseum (Verified)
 	RomeSanctumStage = "rbxassetid://0", -- [320x180] NEEDS FIX: MUGEN gio2 preview has red tint
+	OgreBrawlerIdle = "rbxassetid://0", -- [96x96] Part 1 F1 Ogre Street Brawler battle idle (Row 88)
+	OgreKnifemanIdle = "rbxassetid://0", -- [96x96] Part 1 F2 Ogre Street Knifeman battle idle (Row 88)
+	OgreLookoutIdle = "rbxassetid://0", -- [96x96] Part 1 D1 Wave 1 Ogre Street Lookout battle idle (Row 88)
+	JailThugIdle = "rbxassetid://0", -- [96x96] Part 3 F1 Stand-Awakened Jail Thug battle idle (Row 88)
+	HarborDuelistIdle = "rbxassetid://0", -- [96x96] Part 3 D1 Wave 1 Harbor Sword Duelist battle idle (Row 88)
+	KakyoinIdle = "rbxassetid://0", -- [96x96] Part 3 F2 Kakyoin battle idle (MUGEN v7 Row 88)
+	AvdolIdle = "rbxassetid://0", -- [96x96] Part 3 D1 Wave 2 & Companion: Avdol battle idle (MUGEN v7 Row 88)
+	HierophantGreenSheet = "rbxassetid://0", -- [960x96] 10f grounded sheet (idle/guard/hit/basic/skill/heavy/finisher)
+	MagiciansRedSheet = "rbxassetid://0", -- [960x96] 10f grounded sheet (idle/guard/hit/basic/skill/heavy/finisher)
+	SilverChariotSheet = "rbxassetid://0", -- [864x96] 9f grounded sheet (idle/guard/hit/basic/skill/heavy/finisher)
+	StarPlatinumSheet = "rbxassetid://0", -- [960x96] 10f grounded sheet (idle/guard/hit/basic/skill/heavy/finisher)
+	TheWorldSheet = "rbxassetid://0", -- [960x96] 10f grounded sheet (idle/guard/hit/basic/skill/heavy/finisher)
+	EmperorSheet = "rbxassetid://0", -- [960x96] 10f grounded sheet (idle/guard/hit/basic/skill/heavy/finisher)
+	AnubisSheet = "rbxassetid://0", -- [960x96] 10f grounded sheet (idle/guard/hit/basic/skill/heavy/finisher)
 }
 
 return table.freeze(assets)
