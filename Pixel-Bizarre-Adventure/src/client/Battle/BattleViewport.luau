@@ -19,6 +19,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CombatTypes = require(ReplicatedStorage.Shared.Contracts.CombatTypes)
 local SaveTypes = require(ReplicatedStorage.Shared.Contracts.SaveTypes)
+local AppearanceTypes = require(ReplicatedStorage.Shared.Contracts.CharacterAppearanceTypes)
 local AssetManifest = require(ReplicatedStorage.Shared.Contracts.AssetManifest)
 local PixelUi = require(script.Parent.PixelUi)
 local FighterSprite = require(script.Parent.FighterSprite)
@@ -40,6 +41,8 @@ export type Callbacks = {
 	-- Optional: after the Origin is saved, the victory banner offers the
 	-- Phase 2 Black Sabbath sandbox.
 	onOpenSandbox: (() -> ())?,
+	-- Optional: the player's Creator look, drawn on the player's placeholder sprite.
+	playerAppearance: AppearanceTypes.Appearance?,
 }
 
 type FighterView = {
@@ -277,7 +280,8 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 	local function makeFighter(actor: ActorState): FighterView
 		local facingLeft = actor.team == "Enemy"
 		local holder = PixelUi.frame(fighterLayer, actor.id, 0, FEET_Y - FighterSprite.FEET_ROW, 96, 96)
-		local sprite = FighterSprite.create(holder, actor.spriteKey, facingLeft)
+		local appearance = if actor.spriteKey == "PlayerIdle" then callbacks.playerAppearance else nil
+		local sprite = FighterSprite.create(holder, actor.spriteKey, facingLeft, appearance)
 		local flash = PixelUi.frame(holder, "HitFlash", 34, 28, 28, 60, Colors.Hp)
 		flash.BackgroundTransparency = 1
 
