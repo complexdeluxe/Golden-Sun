@@ -220,15 +220,25 @@ local function battleAccepted(reply: Remote.ActBattleResponse)
 end
 
 local function attack(controller: typeof(first), userId: number, current: Map.ActBattleSnapshot, move: "BasicStrike" | "HeavyStrike" | "Defend")
-	return battleAccepted(controller.battle(userId, { kind = "Primary", request = {
-		battleId = current.battleId, expectedRevision = current.revision, actorId = current.playerActorId,
-		slot = "Primary", moveId = move, targetId = if move == "Defend" then nil else current.actors[2].id,
-	} }))
+	local actorId = assert(current.activeActorId)
+	for _, option in current.primaryOptions do
+		if option.moveId == move and option.legality.canUse then
+			return battleAccepted(controller.battle(userId, { kind = "Primary", request = {
+				battleId = current.battleId, expectedRevision = current.revision, actorId = actorId,
+				slot = option.slot, moveId = move, targetId = option.targets[1].targetId,
+			} }))
+		end
+	end
+	assert(current.endTurnLegality.canUse)
+	local skip: Remote.SandboxSecondaryRequest = {
+		battleId = current.battleId, expectedRevision = current.revision, actorId = actorId, kind = "EndTurn",
+	}
+	return battleAccepted(controller.battle(userId, { kind = "Secondary", request = skip }))
 end
 
 local function finishWithBasics(controller: typeof(first), userId: number, current: Map.ActBattleSnapshot)
 	local result: Hub.CampaignSnapshot? = nil
-	for _ = 1, 6 do
+	for _ = 1, 12 do
 		current, result = attack(controller, userId, current, "BasicStrike")
 		if current.outcome ~= "InProgress" then break end
 	end
@@ -334,4 +344,116 @@ end
 assert(doomed.outcome == "Defeat" and loss and loss.scene.kind == "ActResults")
 assert(loss.scene.result.outcome == "Defeat" and loss.scene.result.rewards.yen == 0 and loss.character.level == 1)
 
-print("Campaign server passed: migration, loadout, F1 for both Origins, ring timeout, defeat, retreat, save retry, and replay")
+local function advertisedBattle(controller: typeof(first), userId: number, onMap: Hub.CampaignSnapshot, index: number)
+	assert(onMap.scene.kind == "ActMap")
+	local node = onMap.scene.map.nodes[index]
+	local play = assert(node.playOptions[1])
+	local running = accepted(controller.submit(userId, {
+		kind = "StartNode", sessionId = onMap.sessionId, expectedRevision = onMap.revision,
+		nodeId = node.id, playOptionId = play.id,
+	}))
+	assert(running.scene.kind == "ActEncounter" and running.scene.encounter.nodeId == node.id)
+	return battleAccepted(controller.battle(userId, { kind = "Get", request = { battleId = running.scene.encounter.battleId } }))
+end
+
+local function advanceToDungeon(controller: typeof(first), userId: number, f1Receipt: Hub.CampaignSnapshot, opponent: string)
+	local afterFlag = navigate(controller, userId, f1Receipt, "ActMap")
+	assert(afterFlag.scene.kind == "ActMap")
+	assert(afterFlag.scene.map.nodes[1].state == "Cleared" and afterFlag.scene.map.nodes[2].state == "Available")
+	assert(afterFlag.scene.map.nodes[3].state == "Locked")
+	local f2 = advertisedBattle(controller, userId, afterFlag, 2)
+	assert(f2.actors[2].displayName == opponent and f2.waveCount == 1)
+	for _ = 1, 3 do f2 = attack(controller, userId, f2, "BasicStrike") end
+	if opponent == "Kakyoin" then
+		assert(f2.endTurnLegality.canUse and not f2.actors[1].primaryAvailable)
+	else
+		assert(f2.actors[1].statuses[1].id == "Bleed")
+	end
+	local _, flagReceipt = finishWithBasics(controller, userId, f2)
+	assert(flagReceipt and flagReceipt.scene.kind == "ActResults" and flagReceipt.scene.result.nodeId == "F2")
+	assert(flagReceipt.character.level == 3 and flagReceipt.companion.state == "Locked")
+	local dungeonMap = navigate(controller, userId, flagReceipt, "ActMap")
+	assert(dungeonMap.scene.kind == "ActMap" and dungeonMap.scene.map.nodes[3].state == "Available")
+	return advertisedBattle(controller, userId, dungeonMap, 3)
+end
+
+local hamonDungeon = advanceToDungeon(first, 1, assert(replayReceipt), "Ogre Street Knifeman")
+assert(hamonDungeon.waveIndex == 1 and hamonDungeon.waveCount == 2 and not hamonDungeon.retreatLegality.canUse)
+assert(hamonDungeon.actors[2].displayName == "Ogre Street Lookout")
+local dungeonRetreat: Remote.ActBattleSecondaryRequest = {
+	battleId = hamonDungeon.battleId, expectedRevision = hamonDungeon.revision, actorId = hamonDungeon.playerActorId, kind = "Retreat",
+}
+local deniedEscape = first.battle(1, { kind = "Secondary", request = dungeonRetreat })
+assert(not deniedEscape.ok and deniedEscape.code == "IllegalAction")
+hamonDungeon = attack(first, 1, hamonDungeon, "BasicStrike")
+assert(hamonDungeon.waveIndex == 1 and hamonDungeon.actors[1].hp < hamonDungeon.actors[1].maxHp)
+local drink: Remote.SandboxSecondaryRequest = {
+	battleId = hamonDungeon.battleId, expectedRevision = hamonDungeon.revision, kind = "UseBeltItem",
+	actorId = hamonDungeon.playerActorId, targetId = hamonDungeon.playerActorId, itemId = "MineralWater" :: Combat.BeltItemId,
+}
+hamonDungeon = battleAccepted(first.battle(1, { kind = "Secondary", request = drink }))
+local beforeWave = hamonDungeon
+local finale, earlyReceipt = attack(first, 1, beforeWave, "BasicStrike")
+assert(earlyReceipt == nil and finale.waveIndex == 2 and finale.outcome == "InProgress")
+assert(finale.battleId == beforeWave.battleId and finale.encounterId == beforeWave.encounterId and finale.revision > beforeWave.revision)
+assert(finale.actors[2].displayName == "Speedwagon" and finale.actors[1].hp == beforeWave.actors[1].hp)
+assert(finale.actors[1].resolve >= beforeWave.actors[1].resolve and finale.belt.beltChargesRemaining == 2)
+assert(finale.belt.items[1].stock == beforeWave.belt.items[1].stock)
+local _, dungeonReceipt = finishWithBasics(first, 1, finale)
+assert(dungeonReceipt and dungeonReceipt.scene.kind == "ActResults" and dungeonReceipt.scene.result.nodeId == "D1")
+assert(dungeonReceipt.scene.result.rewards.yen == 30 and dungeonReceipt.character.level == 4)
+local offer = dungeonReceipt.companion
+assert(offer.state == "Offered" and offer.companionId == "speedwagon" and offer.spriteKey == "CompanionIdle")
+
+local hire: Remote.CampaignActionRequest = {
+	kind = "RecruitCompanion", offerId = offer.offerId, sessionId = dungeonReceipt.sessionId, expectedRevision = dungeonReceipt.revision,
+}
+loseResponse = true
+denied(first.submit(1, hire), "SaveUnavailable")
+local hired = accepted(first.get(1))
+assert(hired.companion.state == "Recruited" and hired.character.yen == dungeonReceipt.character.yen)
+denied(first.submit(1, hire), "StaleRevision")
+first.close(1)
+local persistedHire = accepted(rival.get(1))
+assert(persistedHire.companion.state == "Recruited" and persistedHire.companion.companionId == "speedwagon")
+local allClear = navigate(rival, 1, persistedHire, "ActMap")
+assert(allClear.scene.kind == "ActMap" and allClear.scene.map.nodes[3].state == "Cleared")
+local rematch = advertisedBattle(rival, 1, allClear, 3)
+assert(rematch.companion == nil)
+local _, dungeonReplay = finishWithBasics(rival, 1, rematch)
+assert(dungeonReplay and dungeonReplay.scene.kind == "ActResults" and dungeonReplay.scene.result.rewards.levels == 0)
+assert(dungeonReplay.scene.result.rewards.yen == 15 and dungeonReplay.character.level == 4 and dungeonReplay.companion.state == "Recruited")
+local withPartner = navigate(rival, 1, dungeonReplay, "ActMap")
+local accompanied = advertisedBattle(rival, 1, withPartner, 1)
+assert(accompanied.companion and accompanied.actors[2].displayName == "Speedwagon")
+
+local standRetry = navigate(first, 2, assert(loss), "ActMap")
+local firstTokyo = advertisedBattle(first, 2, standRetry, 1)
+local _, clearedTokyo = finishWithBasics(first, 2, firstTokyo)
+local standDungeon = advanceToDungeon(first, 2, assert(clearedTokyo), "Kakyoin")
+assert(standDungeon.stageAssetKey == "TigerBalmGardenStage" and standDungeon.actors[2].displayName == "Harbor Sword Duelist")
+local lastTokyoWave, standReceipt = finishWithBasics(first, 2, standDungeon)
+assert(lastTokyoWave.waveIndex == 2 and lastTokyoWave.actors[2].displayName == "Avdol")
+assert(standReceipt and standReceipt.companion.state == "Offered" and standReceipt.companion.companionId == "avdol")
+local standHub = navigate(first, 2, standReceipt, "Hub")
+assert(standHub.companion.state == "Offered")
+local hiredAvdol = accepted(first.submit(2, {
+	kind = "RecruitCompanion", offerId = standHub.companion.offerId,
+	sessionId = standHub.sessionId, expectedRevision = standHub.revision,
+}))
+assert(hiredAvdol.companion.state == "Recruited" and hiredAvdol.companion.companionId == "avdol")
+
+rows[4] = {
+	version = 1, tutorialCompleted = true, origin = "Part1_Hamon",
+	campaign = {
+		version = 1, yen = 72, stock = {}, gear = {}, belt = {}, appearance = { skinToneId = "Tan", hairStyleId = "buzz" },
+		f1 = { cleared = true, result = { attempt = { battleId = "previous-flag", mode = "FirstClear" }, outcome = "Clear", yen = 12, levels = 1 } },
+	},
+}
+local oldF1 = accepted(first.get(4))
+assert(oldF1.character.level == 2 and oldF1.character.yen == 72 and oldF1.scene.kind == "ActResults")
+assert(oldF1.scene.result.encounterId == "previous-flag:F1")
+local continued = navigate(first, 4, oldF1, "ActMap")
+assert(continued.scene.kind == "ActMap" and continued.scene.map.nodes[2].state == "Available")
+
+print("Campaign server passed: both Origins through D1, wave carryover, recruitment, replay, save recovery, and F1 migration")

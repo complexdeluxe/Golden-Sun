@@ -6,7 +6,7 @@ local Remote = require("../Contracts/RemoteContract")
 local Save = require("../Contracts/SaveTypes")
 local Progress = require("./TutorialProgress")
 local Profile = require("./CampaignProfile")
-local F1 = require("./CampaignF1")
+local ActBattle = require("./CampaignActBattle")
 local Starter = require("../Data/CampaignStarter")
 
 export type Store = {
@@ -22,7 +22,7 @@ type State = {
 	revision: number,
 	destination: Profile.Destination,
 	record: Record,
-	fight: F1.Fight?,
+	fight: ActBattle.Fight?,
 	finishedBattles: { [string]: Remote.ActBattleResponse },
 	settleAfter: number,
 }
@@ -50,15 +50,15 @@ local function decode(value: unknown): Record?
 	return { profile = profile, tutorial = tutorial, lease = lease, writeRevision = writeRevision }
 end
 
-local function currentFight(state: State): F1.Fight?
-	local pending = state.record.profile.f1.pending
+local function currentFight(state: State): ActBattle.Fight?
+	local pending = state.record.profile.actOne.pending
 	local fight = state.fight
 	return if pending and fight and pending.battleId == fight.attempt.battleId then fight else nil
 end
 
 local function scene(state: State): Hub.Scene
 	local fight = currentFight(state)
-	if fight then return { kind = "ActEncounter", encounter = F1.encounter(fight) } end
+	if fight then return { kind = "ActEncounter", encounter = ActBattle.encounter(fight) } end
 	return Profile.scene(state.record.profile, state.record.tutorial, state.destination)
 end
 
@@ -74,7 +74,7 @@ local function snapshot(state: State): Hub.CampaignSnapshot
 			level = Profile.level(record.profile), yen = record.profile.yen,
 		},
 		scene = scene(state),
-		companion = { state = "Locked" },
+		companion = ActBattle.companion(record.tutorial.origin, record.profile.actOne),
 	}
 end
 
@@ -140,13 +140,20 @@ local function new(
 	local function settle(userId: number, state: State, retry: boolean): Hub.CampaignSnapshot?
 		local fight = state.fight
 		if not fight then return nil end
-		local result = F1.result(fight)
+		local result = ActBattle.result(fight)
 		if not result then return nil end
-		local saved = state.record.profile.f1.result
+		local saved = state.record.profile.actOne.result
 		if not saved or saved.attempt.battleId ~= fight.attempt.battleId then
 			if not retry or not currentFight(state) or battleNow() < state.settleAfter then return nil end
 			local profile = table.clone(state.record.profile)
-			profile.f1 = { cleared = profile.f1.cleared or result.outcome == "Clear", result = result }
+			local progress = table.clone(profile.actOne)
+			progress.pending = nil
+			progress.result = result
+			if result.outcome == "Clear" and not progress.clears[result.attempt.nodeId] then
+				progress.clears = table.clone(progress.clears)
+				progress.clears[result.attempt.nodeId] = true
+			end
+			profile.actOne = progress
 			profile.yen += result.yen
 			profile.stock = table.clone(profile.stock)
 			for _, entryId in profile.belt do
@@ -164,7 +171,7 @@ local function new(
 			replaceRecord(state, record)
 		end
 		local campaign = snapshot(state)
-		state.finishedBattles[fight.attempt.battleId] = { ok = true, snapshot = F1.snapshot(fight), campaignSnapshot = campaign }
+		state.finishedBattles[fight.attempt.battleId] = { ok = true, snapshot = ActBattle.snapshot(fight), campaignSnapshot = campaign }
 		state.fight = nil
 		state.settleAfter = 0
 		return campaign
@@ -178,7 +185,7 @@ local function new(
 			if not record then return reject(code, "Could not open this campaign profile. Try again.", nil) end
 			local opened: State = {
 				sessionId = id, revision = 1, record = record,
-				destination = if record.profile.f1.pending then "ActMap" else "Hub",
+				destination = if record.profile.actOne.pending then "ActMap" else "Hub",
 				finishedBattles = {}, settleAfter = 0,
 			}
 			state = opened
@@ -224,30 +231,57 @@ local function new(
 				return { ok = true, snapshot = snapshot(state) }
 			end
 			updated = table.clone(state.record.profile)
-			updated.f1 = { cleared = updated.f1.cleared }
+			updated.actOne = table.clone(updated.actOne)
+			updated.actOne.result = nil
 		elseif request.kind == "StartNode" then
 			if currentScene.kind ~= "ActMap" then return reject("IllegalAction", "Open the Act Map first.", state) end
-			if request.nodeId ~= "F1" then return reject("NodeLocked", "Clear the previous node first.", state) end
 			local profile = state.record.profile
-			local option = F1.option(profile.f1.cleared)
-			if request.playOptionId ~= option.id then return reject("IllegalAction", "Choose the available F1 option.", state) end
+			local option
+			for _, node in currentScene.map.nodes do
+				if node.id == request.nodeId then
+					option = node.playOptions[1]
+					break
+				end
+			end
+			if not option then return reject("NodeLocked", "Clear the previous node first.", state) end
+			if request.playOptionId ~= option.id then return reject("IllegalAction", "Choose the available play option.", state) end
 			local fight = state.fight
+			if fight and fight.attempt.nodeId ~= request.nodeId then
+				-- A prior StartNode may have committed even if its save reply was lost.
+				local refreshed = get(userId)
+				if not refreshed.ok then return refreshed end
+				if refreshed.snapshot.scene.kind ~= "ActMap" or refreshed.snapshot.revision ~= request.expectedRevision then
+					return reject("StaleRevision", "Campaign state changed. Try again.", state)
+				end
+				fight = nil
+			end
 			if not fight then
 				local stock: { [Combat.BeltItemId]: number } = {}
 				for _, entryId in profile.belt do
 					local itemId = Starter.Items[entryId].beltItemId
 					if itemId then stock[itemId] = profile.stock[entryId] or 0 end
 				end
-				local attempt: F1.Attempt = { battleId = makeId(), mode = option.mode }
-				fight = F1.new(attempt, assert(state.record.tutorial.origin), Profile.level(profile), stock,
+				local attempt: ActBattle.Attempt = { battleId = makeId(), nodeId = request.nodeId, mode = option.mode }
+				fight = ActBattle.new(attempt, assert(state.record.tutorial.origin), Profile.level(profile), stock,
 					if profile.gear.Weapon == "training-wraps" then 2 else 0,
-					if profile.gear.Head == "brimmed-cap" then 2 else 0, roll, battleNow)
+					if profile.gear.Head == "brimmed-cap" then 2 else 0, profile.actOne.recruited, roll, battleNow)
 				state.fight = fight
 			end
 			updated = table.clone(profile)
-			updated.f1 = { cleared = profile.f1.cleared, pending = assert(fight).attempt }
+			updated.actOne = table.clone(profile.actOne)
+			updated.actOne.pending = assert(fight).attempt
 		elseif request.kind == "RecruitCompanion" then
-			return reject("IllegalAction", "Complete Dungeon 1 to recruit.", state)
+			if currentScene.kind ~= "Hub" and currentScene.kind ~= "ActResults" then
+				return reject("IllegalAction", "Recruit from Results or the Hub.", state)
+			end
+			local profile = state.record.profile
+			local offer = ActBattle.companion(state.record.tutorial.origin, profile.actOne)
+			if offer.state ~= "Offered" or offer.offerId ~= request.offerId then
+				return reject("IllegalAction", "Choose the active companion offer.", state)
+			end
+			updated = table.clone(profile)
+			updated.actOne = table.clone(profile.actOne)
+			updated.actOne.recruited = true
 		else
 			if request.kind == "CommitAppearance" then
 				if currentScene.kind ~= "Creator" then return reject("IllegalAction", "Appearance has already been set.", state) end
@@ -278,7 +312,7 @@ local function new(
 		return { ok = true, snapshot = snapshot(state) }
 	end
 
-	local function battle(userId: number, command: F1.Command): Remote.ActBattleResponse
+	local function battle(userId: number, command: ActBattle.Command): Remote.ActBattleResponse
 		local state = sessions[userId]
 		if not state or assert(state.record.lease).expiresAt <= clock() then
 			return { ok = false, code = "ProfileLocked", message = "Refresh the campaign to reconnect." }
@@ -290,9 +324,9 @@ local function new(
 		if not fight or fight.attempt.battleId ~= id then
 			return { ok = false, code = "BattleNotFound", message = "This battle is no longer open." }
 		end
-		local wasTerminal = F1.result(fight) ~= nil
-		F1.expireChecks(fight)
-		local result = F1.apply(fight, command)
+		local wasTerminal = ActBattle.result(fight) ~= nil
+		ActBattle.expireChecks(fight)
+		local result = ActBattle.apply(fight, command)
 		local finalized = settle(userId, state, not wasTerminal)
 		if finalized then return state.finishedBattles[id] end
 		return result
@@ -302,15 +336,15 @@ local function new(
 		local state = sessions[userId]
 		local fight = if state then currentFight(state) else nil
 		if not fight then return nil, nil end
-		return fight.attempt.battleId, F1.nextDeadline(fight)
+		return fight.attempt.battleId, ActBattle.nextDeadline(fight)
 	end
 
 	local function expireChecks(userId: number, battleId: string): Remote.ActBattleResponse?
 		local state = sessions[userId]
 		local fight = if state then currentFight(state) else nil
-		if not state or not fight or fight.attempt.battleId ~= battleId or not F1.expireChecks(fight) then return nil end
+		if not state or not fight or fight.attempt.battleId ~= battleId or not ActBattle.expireChecks(fight) then return nil end
 		local campaign = settle(userId, state, true)
-		return { ok = true, snapshot = F1.snapshot(fight), campaignSnapshot = campaign }
+		return { ok = true, snapshot = ActBattle.snapshot(fight), campaignSnapshot = campaign }
 	end
 
 	local function renew(userId: number)

@@ -8,7 +8,7 @@ local Map = require("../Contracts/MapTypes")
 local Remote = require("../Contracts/RemoteContract")
 local Save = require("../Contracts/SaveTypes")
 local Starter = require("../Data/CampaignStarter")
-local F1 = require("./CampaignF1")
+local ActBattle = require("./CampaignActBattle")
 
 export type Profile = {
 	version: number,
@@ -17,7 +17,7 @@ export type Profile = {
 	stock: { [string]: number },
 	gear: { [Inventory.GearSlot]: string },
 	belt: { [string]: string },
-	f1: F1.Progress,
+	actOne: ActBattle.Progress,
 }
 export type Destination = "Hub" | "ActMap"
 
@@ -79,7 +79,7 @@ function Profile.decode(value: unknown): Profile?
 	if value == nil then
 		return {
 			version = 1, yen = Starter.StartingYen, stock = { ["training-wraps"] = 1, ["tonio-water"] = 2, ["med-kit"] = 1 },
-			gear = {}, belt = {}, f1 = { cleared = false },
+			gear = {}, belt = {}, actOne = { clears = {}, recruited = false },
 		}
 	end
 	if type(value) ~= "table" then return nil end
@@ -89,8 +89,8 @@ function Profile.decode(value: unknown): Profile?
 
 	local appearance = Profile.appearance(raw.appearance)
 	if raw.appearance ~= nil and not appearance then return nil end
-	local f1 = F1.decode(raw.f1)
-	if not f1 then return nil end
+	local actOne = ActBattle.decode(raw.actOne, raw.f1)
+	if not actOne then return nil end
 	local stock: { [string]: number } = {}
 	for id, quantity in raw.stock :: { [string]: unknown } do
 		local item = Starter.Items[id]
@@ -117,11 +117,13 @@ function Profile.decode(value: unknown): Profile?
 		equipped[id] = true
 	end
 
-	return { version = 1, appearance = appearance, yen = raw.yen :: number, stock = stock, gear = gear, belt = belt, f1 = f1 }
+	return { version = 1, appearance = appearance, yen = raw.yen :: number, stock = stock, gear = gear, belt = belt, actOne = actOne }
 end
 
 function Profile.level(profile: Profile): number
-	return if profile.f1.cleared then 2 else 1
+	local level = 1
+	for _ in profile.actOne.clears do level += 1 end
+	return level
 end
 
 local function shop(profile: Profile): { Hub.ShopOffer }
@@ -177,19 +179,20 @@ function Profile.scene(profile: Profile, tutorial: Save.Profile, destination: De
 	if not tutorial.tutorialCompleted then return { kind = "Tutorial" } end
 	local origin = tutorial.origin
 	if not origin then return { kind = "OriginSelect" } end
-	if profile.f1.result then return { kind = "ActResults", result = F1.resultView(profile.f1.result) } end
+	if profile.actOne.result then return { kind = "ActResults", result = ActBattle.resultView(profile.actOne.result) } end
 	if destination == "ActMap" then
-		local firstOption = F1.option(profile.f1.cleared)
 		local route = Starter.ActOneRoutes[origin]
 		local nodes: { Map.NodeView } = {}
 		for index, nodeId in Map.NodeOrder do
 			local stage = route.stages[nodeId]
 			local previous = Map.NodeOrder[index - 1]
+			local allowed = not previous or profile.actOne.clears[previous] == true
+			local cleared = profile.actOne.clears[nodeId] == true
 			local node: Map.NodeView = {
 				id = nodeId, label = stage.label, stageTag = stage.tag, stageAssetKey = stage.assetKey,
 				prerequisites = if previous then { previous } else {},
-				state = if previous then "Locked" elseif profile.f1.cleared then "Cleared" else "Available",
-				playOptions = if previous then {} else { firstOption },
+				state = if cleared then "Cleared" elseif allowed then "Available" else "Locked",
+				playOptions = if allowed then { ActBattle.option(nodeId, cleared) } else {},
 			}
 			table.insert(nodes, node)
 		end

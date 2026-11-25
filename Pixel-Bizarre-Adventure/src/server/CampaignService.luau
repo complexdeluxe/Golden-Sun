@@ -6,7 +6,7 @@ local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 
 local Remote = require("@game/ReplicatedStorage/Shared/Contracts/RemoteContract")
 local Session = require("@game/ReplicatedStorage/Shared/Core/CampaignSession")
-local F1 = require("@game/ReplicatedStorage/Shared/Core/CampaignF1")
+local ActBattle = require("@game/ReplicatedStorage/Shared/Core/CampaignActBattle")
 
 type Payload = { [string]: unknown }
 type Handler = (number, Payload) -> Remote.CampaignResponse | Remote.ActBattleResponse
@@ -171,7 +171,7 @@ local function bind(store: Session.Store)
 					and (input == "Confirm" or input == "Left" or input == "Center" or input == "Right")
 			end
 			if not valid then return { ok = false, code = "InvalidRequest", message = "Invalid Act battle input." } end
-			return session.battle(userId, ({ kind = kind, request = payload } :: unknown) :: F1.Command)
+			return session.battle(userId, ({ kind = kind, request = payload } :: unknown) :: ActBattle.Command)
 		end)
 	end
 	addActFunction(actRoutes.GetActBattleSnapshot.name, "Get")

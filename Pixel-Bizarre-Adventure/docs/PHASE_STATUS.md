@@ -1,6 +1,6 @@
 # Phase status
 
-**Active phase** — Phase 3 F1 combat integration.
+**Active phase** — Phase 3 F2, D1 and recruitment integration.
 
 **Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement. The real Roblox DataStore restart check remains open as a separate follow-up.
 
@@ -12,13 +12,14 @@
 | 3.1 | Creator, Hub, Act 1 map, inventory, and campaign routes | Merged in PR #13 |
 | 3.3 | Saved appearance, Hub economy, loadout, and campaign remotes | Draft server implementation |
 | 3.4 | Creator, Hub, bag, map, and results screens | PR #14, verified on the campaign mock |
-| Act combat | F1 battle, Results and replay on the campaign server | F1 review branch |
+| Act combat | F1 battle, Results and replay on the campaign server | PR #17, Studio-tested |
+| Act 1 | F2, two-wave D1 and companion recruitment | Act 1 review branch |
 
 ## Campaign server handoff
 
 Test the server with the client from [PR #14](https://github.com/complexdeluxe/Golden-Sun/pull/14). The real campaign supports Creator, tutorial and Origin routing, the Hub, the starter Yen shop, gear and belt slots, and navigation to the Act Map. It stores campaign fields alongside the existing tutorial profile and commits mutations under an expiring session lease. Studio uses the in-memory store by default. Controlled cross-restart validation uses the isolated Studio DataStore.
 
-The starter shop and its prices are playtest data. Appearance IDs and swatches match the current client renderer. The F1 review branch enables F1 for both Origins and uses finalized battle results for the first clear and replays. F2, D1 and recruitment remain the next server milestone.
+The starter shop, opponent stats and clear rewards are playtest data. Both Origins can clear F1, F2 and D1 in order and return to Results. Existing F1 saves retain their clear and any unacknowledged Results.
 
 The server exposes the Phase 3 art keys through the existing Creator, inventory and map fields. The Part 1 route uses Ogre Street, Night Alley and the hideout. The Stand route draft uses Tokyo Jail, Tokyo Schoolyard and Tiger Balm Garden. The manifest uses asset ID 0 until the images receive Roblox IDs. The client can keep its current fallback art and wire layered rendering in its own follow-up.
 
@@ -28,11 +29,13 @@ For the player fighter in the tutorial and Act battle, read `CampaignSnapshot.ch
 
 The live Creator catalog exposes the eight hair swatches as `hairColors` entries with `id`, `label`, and `hex`. `CommitAppearance` accepts an optional palette color. Older saves and clients default to Jet Black (`#242633`). The existing Creator can keep submitting skin and hair IDs while the base Act 1 loop is built.
 
-### F1 client integration
+### Act 1 client integration
 
 Use the [Act combat handoff](CLAUDE_PHASE_3_ACT_COMBAT_HANDOFF.md) to replace the real server's Encounter placeholder with the existing compact HUD. Start with the battle ID on `ActEncounter` and adapt the HUD to render the Act snapshot's actors, intents and stage. Send Primary, Secondary, QTE and mode inputs to `ActBattleRemotes`. The server advances turns and grades the rings. Accept the campaign snapshot in a battle reply or event and open the existing Results screen when it reaches `ActResults`. Refresh the campaign for **SAVING RESULTS...** and **RETRY**. Use the existing Creator and placeholder sprites to playtest.
 
-F1 uses the Ogre Street Brawler for Hamon and the Stand-Awakened Jail Thug for Stand. Both preview a heavy attack. The initial playtest pays 12 Yen and one level for the first clear and 6 Yen and zero levels for a replay. Defeat and retreat yield zero clear rewards. Equipped belt stock is spent when the server commits Results. Rejoining with an interrupted F1 returns to the map, and saved Results reopen until acknowledged there or in the Hub.
+F2 is the Ogre Street Knifeman for Hamon and Kakyoin for Stand. Guard or interrupt the delayed attack to avoid Bleed or Stun. D1 has one approach wave and one finale, with one active foe per wave. The Hamon route fights the Ogre Street Lookout and Speedwagon. The Stand route fights the Harbor Sword Duelist and Avdol. Each wave transition keeps the battle ID, continues revision numbering, and carries party HP, Resolve and belt stock forward. The next turn regenerates Stamina as usual.
+
+The first D1 clear offers Speedwagon or Avdol through the existing Results and Hub screens. The offer persists until accepted. Recruited companions join Flag replays and face the player in their D1 rematch. First clears grant one level and 12, 18 or 30 Yen. Replays grant zero levels and half the Yen. Defeat and Flag retreats grant zero clear rewards. Equipped belt stock is spent when the server commits Results. Interrupted encounters return to the map, and saved Results reopen until the player returns to the map or Hub.
 
 ## Phase 3 contract review
 
