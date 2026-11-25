@@ -254,7 +254,7 @@ export type SandboxLogEvent = {
 	message: string,
 }
 
-export type SandboxSnapshot = {
+export type BattleHudSnapshot = {
 	battleId: string,
 	revision: number,
 	turn: number,
@@ -271,9 +271,12 @@ export type SandboxSnapshot = {
 	exposure: ExposureView?,
 	qteMode: QteMode,
 	qtePrompt: QtePrompt?,
+	log: { SandboxLogEvent },
+}
+
+export type SandboxSnapshot = BattleHudSnapshot & {
 	stageTag: "Night" | "Neutral",
 	blackSabbathStep: "LighterStrike" | "ShadowGrabWindup" | "ShadowGrabLanding" | "FadeIntoShadow",
-	log: { SandboxLogEvent },
 	outcome: CombatOutcome,
 }
 

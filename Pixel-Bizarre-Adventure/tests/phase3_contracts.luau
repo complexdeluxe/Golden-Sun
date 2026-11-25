@@ -139,4 +139,42 @@ assert(Remote.Campaign.GetCampaignSnapshot.name == "GetCampaignSnapshot" and Rem
 assert(Remote.Campaign.SubmitCampaignAction.name == "SubmitCampaignAction" and Remote.Campaign.SubmitCampaignAction.className == "RemoteFunction")
 assert(Remote.Campaign.CampaignSnapshotChanged.name == "CampaignSnapshotChanged" and Remote.Campaign.CampaignSnapshotChanged.className == "RemoteEvent")
 
-print("Phase 3 contract smoke passed: creator, hub, loadout, map replay, recruitment, and remote routes")
+local encounter: Map.ActiveEncounter = {
+	encounterId = "act1-d1-clear", battleId = "act1-battle-23",
+	nodeId = "D1", mode = "FirstClear", stageTag = "Sunlit",
+}
+local actBattle: Map.ActBattleSnapshot = {
+	battleId = encounter.battleId, encounterId = encounter.encounterId,
+	revision = 4, turn = 2, playerActorId = "player", activeActorId = "player",
+	actors = {}, turnOrder = {}, enemyIntents = {}, primaryOptions = {}, log = {},
+	endTurnLegality = { canUse = false, disabledReason = "Primary available" },
+	retreatLegality = { canUse = true },
+	belt = { beltChargesRemaining = 2, directHealsRemaining = 1, medKitUsed = false, items = {} },
+	qteMode = "Manual", stageTag = encounter.stageTag, waveIndex = 2, waveCount = 3,
+	outcome = "InProgress",
+}
+local resume: Remote.GetActBattleSnapshotRequest = { battleId = encounter.battleId }
+local retreat: Remote.ActBattleSecondaryRequest = {
+	kind = "Retreat", actorId = actBattle.playerActorId,
+	battleId = actBattle.battleId, expectedRevision = actBattle.revision,
+}
+assert(resume.battleId == actBattle.battleId and retreat.expectedRevision == actBattle.revision)
+assert(actBattle.waveIndex < actBattle.waveCount and actBattle.outcome == "InProgress")
+actBattle.revision += 1
+actBattle.waveIndex = actBattle.waveCount
+actBattle.outcome = "Victory"
+local settled: Remote.ActBattleResponse = {
+	ok = true, snapshot = actBattle, campaignSnapshot = resultSnapshot,
+}
+assert(settled.ok and settled.snapshot.outcome == "Victory")
+assert(settled.campaignSnapshot and settled.campaignSnapshot.scene.kind == "ActResults"
+	and settled.campaignSnapshot.scene.result.encounterId == settled.snapshot.encounterId)
+assert(Remote.ActBattle.FolderName == "ActBattleRemotes" and Remote.ActBattle.FolderName ~= Remote.Sandbox.FolderName)
+assert(Remote.ActBattle.GetActBattleSnapshot.className == "RemoteFunction")
+assert(Remote.ActBattle.SubmitActBattlePrimary.className == "RemoteFunction")
+assert(Remote.ActBattle.SubmitActBattleSecondary.className == "RemoteFunction")
+assert(Remote.ActBattle.SubmitActBattleQteCheck.className == "RemoteFunction")
+assert(Remote.ActBattle.SetActBattleQteMode.className == "RemoteFunction")
+assert(Remote.ActBattle.ActBattleSnapshotChanged.className == "RemoteEvent")
+
+print("Phase 3 contract smoke passed: creator, hub, loadout, map replay, recruitment, and Act combat")
