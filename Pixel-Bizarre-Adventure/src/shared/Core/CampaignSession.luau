@@ -50,6 +50,7 @@ local function snapshot(state: State): Hub.CampaignSnapshot
 		sessionId = state.sessionId, revision = state.revision,
 		character = {
 			appearance = record.profile.appearance,
+			appearanceSprites = Profile.appearanceSprites(record.profile.appearance),
 			tutorialCompleted = record.tutorial.tutorialCompleted,
 			origin = record.tutorial.origin,
 			level = 1, yen = record.profile.yen,

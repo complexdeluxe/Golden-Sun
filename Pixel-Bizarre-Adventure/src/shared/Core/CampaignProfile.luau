@@ -30,18 +30,47 @@ local function integer(value: unknown, minimum: number, maximum: number): boolea
 	return type(value) == "number" and value >= minimum and value <= maximum and value % 1 == 0
 end
 
+local function appearanceOptions(skinToneId: unknown, hairStyleId: unknown): (Appearance.SkinToneOption?, Appearance.HairStyleOption?)
+	for _, skin in Starter.Catalog.skinTones do
+		if skin.id ~= skinToneId then continue end
+		for _, hair in Starter.Catalog.hairStyles do
+			if hair.id == hairStyleId and hair.legality.canUse then return skin, hair end
+		end
+	end
+	return nil, nil
+end
+
 function Profile.appearance(value: unknown): Appearance.Appearance?
 	if type(value) ~= "table" then return nil end
 	local fields = value :: { [string]: unknown }
-	for _, skin in Starter.Catalog.skinTones do
-		if skin.id ~= fields.skinToneId then continue end
-		for _, hair in Starter.Catalog.hairStyles do
-			if hair.id == fields.hairStyleId and hair.legality.canUse then
-				return { skinToneId = skin.id, hairStyleId = hair.id }
+	local skin, hair = appearanceOptions(fields.skinToneId, fields.hairStyleId)
+	if not skin or not hair then return nil end
+	local hex = fields.hairColorHex
+	local color = Starter.DefaultHairColor
+	if hex ~= nil then
+		if type(hex) ~= "string" or #hex ~= 7 then return nil end
+		local selected = string.upper(hex)
+		local inPalette = false
+		for _, swatch in Starter.HairColors do
+			if swatch.hex == selected then
+				inPalette = true
+				break
 			end
 		end
+		if not inPalette then return nil end
+		color = selected
 	end
-	return nil
+	return { skinToneId = skin.id, hairStyleId = hair.id, hairColorHex = color }
+end
+
+function Profile.appearanceSprites(appearance: Appearance.Appearance?): Appearance.AppearanceSprites?
+	if not appearance then return nil end
+	local skin, hair = appearanceOptions(appearance.skinToneId, appearance.hairStyleId)
+	return {
+		bodySpriteKey = if skin then skin.bodySpriteKey else nil,
+		overlaySpriteKey = if hair then hair.overlaySpriteKey else nil,
+		accentSpriteKey = if hair then hair.accentSpriteKey else nil,
+	}
 end
 
 function Profile.decode(value: unknown): Profile?

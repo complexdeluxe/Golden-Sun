@@ -21,6 +21,12 @@ The starter shop and its prices are playtest data. Appearance IDs and swatches m
 
 The server exposes the Phase 3 art keys through the existing Creator, inventory and map fields. The Part 1 route uses Ogre Street, Night Alley and the hideout. The Stand route draft uses Tokyo Jail, Tokyo Schoolyard and Tiger Balm Garden. The manifest uses asset ID 0 until the images receive Roblox IDs. The client can keep its current fallback art and wire layered rendering in its own follow-up.
 
+### FighterSprite handoff
+
+For the player fighter in the tutorial and Act battle, read `CampaignSnapshot.character.appearance.hairColorHex` and pass `CampaignSnapshot.character.appearanceSprites` to the renderer. The sprite payload supplies `bodySpriteKey`, `overlaySpriteKey`, and `accentSpriteKey` on every scene with a saved look. Render the body first and tint the neutral hair overlay with the saved color. When the accent key is present, stack it last and render it untinted. The cap's accent key is `HairCapTrim`. All three layers share the same facing and pixelated sampling. Use the existing fallbacks for missing layers or asset ID 0.
+
+The live Creator catalog exposes the eight hair swatches as `hairColors` entries with `id`, `label`, and `hex`. `CommitAppearance` accepts an optional palette color. Older saves and clients default to Jet Black (`#242633`). The existing Creator can keep submitting skin and hair IDs while the base Act 1 loop is built.
+
 The next contract review should cover the battle snapshot handed off by `StartNode`, active battle identity and revision, timed and untimed actions, and the server transition to `ActResults`. Claude can continue reviewing PR #14 in parallel. Antigravity/Gemini can continue modular hair, slice stages, and the 32 × 32 inventory icons from the [existing handoff](CLAUDE_PHASE_3_HANDOFF.md).
 
 ## Phase 3 contract review

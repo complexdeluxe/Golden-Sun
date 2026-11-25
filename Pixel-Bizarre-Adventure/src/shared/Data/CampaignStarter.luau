@@ -16,8 +16,21 @@ export type Item = {
 	offer: Offer?,
 }
 
+local DEFAULT_HAIR_COLOR = "#242633"
+local hairColors: { Appearance.HairColorOption } = {
+	{ id = "jet-black", label = "Jet Black", hex = DEFAULT_HAIR_COLOR },
+	{ id = "espresso", label = "Espresso", hex = "#5C3B28" },
+	{ id = "dio-gold", label = "Dio Gold", hex = "#F2C94C" },
+	{ id = "josuke-indigo", label = "Indigo", hex = "#4B5799" },
+	{ id = "kakyoin-red", label = "Crimson", hex = "#D94A5A" },
+	{ id = "polnareff-silver", label = "Silver", hex = "#DCE2F0" },
+	{ id = "jolyne-green", label = "Emerald", hex = "#52C488" },
+	{ id = "giorno-magenta", label = "Magenta", hex = "#D968A8" },
+}
+
 local catalog: Appearance.Catalog = {
-	defaultAppearance = { skinToneId = "Tan", hairStyleId = "buzz" },
+	defaultAppearance = { skinToneId = "Tan", hairStyleId = "buzz", hairColorHex = DEFAULT_HAIR_COLOR },
+	hairColors = hairColors,
 	skinTones = {
 		{ id = "Fair", label = "Fair", swatchHex = "#F1C9A5", bodySpriteKey = "PlayerBodyFair" },
 		{ id = "Tan", label = "Tan", swatchHex = "#D9A066", bodySpriteKey = "PlayerBodyTan" },
@@ -29,7 +42,7 @@ local catalog: Appearance.Catalog = {
 		{ id = "pompadour", label = "Pompadour", overlaySpriteKey = "HairPompadour", legality = { canUse = true } },
 		{ id = "long", label = "Long", overlaySpriteKey = "HairLong", legality = { canUse = true } },
 		{ id = "spiky", label = "Spiky", overlaySpriteKey = "HairSpiky", legality = { canUse = true } },
-		{ id = "cap", label = "Cap", overlaySpriteKey = "HairCap", legality = { canUse = true } },
+		{ id = "cap", label = "Cap", overlaySpriteKey = "HairCap", accentSpriteKey = "HairCapTrim", legality = { canUse = true } },
 		{ id = "bald", label = "Bald", legality = { canUse = true } },
 	},
 }
@@ -79,6 +92,8 @@ local actOneRoutes: { [Save.Origin]: ActOneRoute } = {
 return table.freeze({
 	ActOneRoutes = actOneRoutes,
 	Catalog = catalog,
+	DefaultHairColor = DEFAULT_HAIR_COLOR,
+	HairColors = hairColors,
 	Items = items,
 	ItemOrder = table.freeze({ "training-wraps", "brimmed-cap", "tonio-water", "med-kit" }),
 	BeltSlots = 3,

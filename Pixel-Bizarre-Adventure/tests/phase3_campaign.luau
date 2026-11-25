@@ -45,6 +45,8 @@ local first = session()
 local rival = session()
 local creator = accepted(first.get(1))
 assert(creator.scene.kind == "Creator")
+local hairColors = assert(creator.scene.catalog.hairColors)
+assert(#hairColors == 8 and hairColors[1].hex == "#242633")
 for _, skin in creator.scene.catalog.skinTones do
 	assert(skin.bodySpriteKey and Assets[skin.bodySpriteKey])
 end
@@ -54,8 +56,14 @@ for _, hair in creator.scene.catalog.hairStyles do
 	else
 		assert(hair.overlaySpriteKey and Assets[hair.overlaySpriteKey])
 	end
+	assert(hair.accentSpriteKey == (if hair.id == "cap" then "HairCapTrim" else nil))
 end
 denied(rival.get(1), "ProfileLocked")
+local invalidLook: Appearance.Appearance = { skinToneId = "Deep", hairStyleId = "bald", hairColorHex = "#112233" }
+denied(first.submit(1, {
+	kind = "CommitAppearance", sessionId = creator.sessionId, expectedRevision = creator.revision,
+	appearance = invalidLook,
+}), "IllegalAction")
 local deepBald: Appearance.Appearance = { skinToneId = "Deep", hairStyleId = "bald" }
 local look: Remote.CampaignActionRequest = {
 	kind = "CommitAppearance", appearance = deepBald,
@@ -63,6 +71,10 @@ local look: Remote.CampaignActionRequest = {
 }
 local tutorial = accepted(first.submit(1, look))
 assert(tutorial.scene.kind == "Tutorial" and tutorial.character.appearance and tutorial.character.appearance.skinToneId == "Deep")
+assert(tutorial.character.appearance.hairColorHex == "#242633")
+local baldSprites = assert(tutorial.character.appearanceSprites)
+assert(baldSprites.bodySpriteKey == "PlayerBodyDeep")
+assert(baldSprites.overlaySpriteKey == nil and baldSprites.accentSpriteKey == nil)
 denied(first.submit(1, look), "StaleRevision")
 
 -- Simulate the existing tutorial routes writing the root profile.
@@ -138,12 +150,18 @@ assert(restored.scene.inventory.belt[1].entryId == "tonio-water")
 rows[2] = { version = 1, tutorialCompleted = true, origin = "Part3_Stand" }
 local migrating = accepted(first.get(2))
 assert(migrating.scene.kind == "Creator" and migrating.character.origin == "Part3_Stand")
-local tanBald: Appearance.Appearance = { skinToneId = "Tan", hairStyleId = "bald" }
+local tanCap: Appearance.Appearance = { skinToneId = "Tan", hairStyleId = "cap", hairColorHex = "#f2c94c" }
 local migrated = accepted(first.submit(2, {
-	kind = "CommitAppearance", appearance = tanBald,
+	kind = "CommitAppearance", appearance = tanCap,
 	sessionId = migrating.sessionId, expectedRevision = migrating.revision,
 }))
 assert(migrated.scene.kind == "Hub" and migrated.character.origin == "Part3_Stand")
+local capView = assert(migrated.character.appearance)
+local capSprites = assert(migrated.character.appearanceSprites)
+assert(capView.hairColorHex == "#F2C94C" and capSprites.bodySpriteKey == "PlayerBodyTan")
+assert(capSprites.overlaySpriteKey == "HairCap" and capSprites.accentSpriteKey == "HairCapTrim" and Assets.HairCapTrim)
+local savedCap = ((rows[2].campaign :: { appearance: unknown }).appearance :: { [string]: unknown })
+assert(savedCap.hairColorHex == "#F2C94C" and savedCap.accentSpriteKey == nil)
 local standMap = accepted(first.submit(2, {
 	kind = "Navigate", sessionId = migrated.sessionId, expectedRevision = migrated.revision, destination = "ActMap",
 }))
@@ -157,11 +175,28 @@ assert(standNodes[1].playOptions[1].legality.canUse == false)
 now += 181
 local recovered = accepted(rival.get(2))
 assert(recovered.scene.kind == "Hub")
+local recoveredLook = assert(recovered.character.appearance)
+local recoveredSprites = assert(recovered.character.appearanceSprites)
+assert(recoveredLook.hairColorHex == "#F2C94C" and recoveredSprites.accentSpriteKey == "HairCapTrim")
 local changed = first.submit(2, {
 	kind = "PurchaseOffer", offerId = "tonio-water", quantity = 1,
 	sessionId = migrated.sessionId, expectedRevision = migrated.revision,
 })
 denied(changed, "ProfileLocked")
 assert(accepted(rival.get(2)).character.yen == migrated.character.yen)
+
+rows[3] = {
+	version = 1, tutorialCompleted = true, origin = "Part1_Hamon",
+	campaign = {
+		version = 1, yen = 60, stock = {}, gear = {}, belt = {},
+		appearance = { skinToneId = "Fair", hairStyleId = "spiky" },
+	},
+}
+local legacy = accepted(first.get(3))
+assert(legacy.scene.kind == "Hub")
+local legacyLook = assert(legacy.character.appearance)
+local legacySprites = assert(legacy.character.appearanceSprites)
+assert(legacyLook.hairColorHex == "#242633" and legacySprites.bodySpriteKey == "PlayerBodyFair")
+assert(legacySprites.overlaySpriteKey == "HairSpiky" and legacySprites.accentSpriteKey == nil)
 
 print("Campaign server passed: profile routing, migration, asset bindings, both Act 1 maps, shop, loadout, and session locking")
