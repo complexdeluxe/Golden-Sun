@@ -30,8 +30,19 @@ local CombatTypes = require(ReplicatedStorage.Shared.Contracts.CombatTypes)
 local AssetManifest = require(ReplicatedStorage.Shared.Contracts.AssetManifest)
 local PixelUi = require(script.Parent.PixelUi)
 local FighterSprite = require(script.Parent.FighterSprite)
+local AppearanceTypes = require(ReplicatedStorage.Shared.Contracts.CharacterAppearanceTypes)
 
-type Snapshot = CombatTypes.SandboxSnapshot
+-- The HUD draws the shared battle fields. The sandbox adds the Black Sabbath
+-- step; an Act battle adds the stage art, the wave count and Retreat.
+type Snapshot = CombatTypes.BattleHudSnapshot & {
+	stageTag: string?,
+	blackSabbathStep: string?,
+	outcome: string,
+	stageAssetKey: string?,
+	waveIndex: number?,
+	waveCount: number?,
+	retreatLegality: Legality?,
+}
 type Actor = CombatTypes.SandboxActorState
 type Intent = CombatTypes.SandboxIntent
 type PrimaryOption = CombatTypes.PrimaryOption
@@ -74,7 +85,12 @@ export type Callbacks = {
 	onEndTurn: () -> (),
 	onQteMode: (mode: QteMode) -> (),
 	onQteInput: (challengeId: string, checkIndex: number, input: QteSubmissionInput) -> (),
+	-- The outcome banner's button: FIGHT AGAIN in the sandbox, RETRY in an Act fight.
 	onRestart: () -> (),
+	-- Act fights only: shows RETREAT in the top bar.
+	onRetreat: (() -> ())?,
+	-- Drawn on the PlayerIdle fighter (the look saved in the Creator).
+	playerAppearance: AppearanceTypes.Appearance?,
 }
 
 export type CombatHudV2 = {
@@ -82,6 +98,8 @@ export type CombatHudV2 = {
 	setBusy: (self: CombatHudV2, busy: boolean) -> (),
 	toast: (self: CombatHudV2, message: string) -> (),
 	setMock: (self: CombatHudV2, isMock: boolean) -> (),
+	-- Act fights: replace the outcome banner's line and button. A nil button hides it.
+	setOutcomeNote: (self: CombatHudV2, line: string?, button: string?) -> (),
 	destroy: (self: CombatHudV2) -> (),
 }
 
@@ -184,6 +202,13 @@ local ITEM_SHORT: { [string]: string } = {
 	SpikedWhetstone = "WHT",
 }
 
+local STAGE_TEXT: { [string]: string } = {
+	Night = "NIGHT",
+	Neutral = "NEUTRAL",
+	WaterRain = "RAIN",
+	Sunlit = "SUNLIT",
+}
+
 local STEP_TEXT: { [string]: string } = {
 	LighterStrike = "LIGHTER",
 	ShadowGrabWindup = "GRAB WINDUP",
@@ -245,7 +270,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 	local connections: { RBXScriptConnection } = {}
 
 	local stageLayer = PixelUi.frame(root, "StageLayer", 0, 0, PixelUi.NATIVE_WIDTH, PixelUi.NATIVE_HEIGHT)
-	local stageNight: boolean? = nil
+	local stageNight: string? = nil
 	local fighterLayer = PixelUi.frame(root, "Fighters", 0, 0, PixelUi.NATIVE_WIDTH, ARENA_H)
 	fighterLayer.ClipsDescendants = true
 	local hud = PixelUi.frame(root, "Hud", 0, 0, PixelUi.NATIVE_WIDTH, PixelUi.NATIVE_HEIGHT)
@@ -258,6 +283,11 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 	mockBadge.Visible = false
 	local logBox = chip(hud, "LogButton", 286, 2, 32, 11, "LOG", Colors.Panel)
 	local logButton = PixelUi.button(logBox, "Press", 0, 0, 32, 11, "")
+	-- Act fights: Retreat. The first press arms it, the second sends it.
+	local retreatBox, retreatFill, retreatLabel = chip(hud, "Retreat", 208, 2, 40, 11, "RETREAT", Colors.Panel)
+	local retreatButton = PixelUi.button(retreatBox, "Press", 0, 0, 40, 11, "")
+	retreatBox.Visible = false
+	local retreatArmed = 0
 	local _ = stageBox
 	local _ = stepBox
 
@@ -475,7 +505,7 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 	banner.Visible = false
 	local bannerTitle = PixelUi.label(banner, "Title", 0, 6, 180, 12, "", Colors.Victory, Enum.TextXAlignment.Center)
 	local bannerSub = PixelUi.label(banner, "Subtitle", 6, 20, 168, 10, "", Colors.TextDim, Enum.TextXAlignment.Center)
-	local bannerButtonBox = chip(banner, "ButtonBox", 40, 36, 100, 16, "FIGHT AGAIN", Colors.Button)
+	local bannerButtonBox, _bannerButtonFill, bannerButtonLabel = chip(banner, "ButtonBox", 40, 36, 100, 16, "FIGHT AGAIN", Colors.Button)
 	local bannerButton = PixelUi.button(bannerButtonBox, "Button", 0, 0, 100, 16, "")
 
 	local toastBox = PixelUi.box(hud, "Toast", 40, 36, 240, 14, Colors.PanelLight)
@@ -637,13 +667,15 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 	-- Stage ----------------------------------------------------------------------
 	local function renderStage(snapshot: Snapshot)
 		local night = snapshot.stageTag == "Night"
-		if stageNight == night then
+		local key = snapshot.stageAssetKey or "BlackSabbathStage"
+		local drawnKey = `{key}:{night}`
+		if stageNight == drawnKey then
 			return
 		end
-		stageNight = night
+		stageNight = drawnKey
 		stageLayer:ClearAllChildren()
-		local id = AssetManifest.BlackSabbathStage
-		if id ~= PixelUi.UNSET_ASSET then
+		local id = (AssetManifest :: any)[key]
+		if type(id) == "string" and id ~= PixelUi.UNSET_ASSET then
 			PixelUi.image(stageLayer, "Stage", 0, 0, PixelUi.NATIVE_WIDTH, ARENA_H, id)
 		else
 			drawPlaceholderNight(stageLayer, night)
@@ -658,7 +690,8 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		aura.BackgroundTransparency = 0.55
 		aura.ZIndex = 0
 		aura.Visible = false
-		local sprite = FighterSprite.create(holder, actor.spriteKey, facingLeft)
+		local look = if actor.spriteKey == "PlayerIdle" then callbacks.playerAppearance else nil
+		local sprite = FighterSprite.create(holder, actor.spriteKey, facingLeft, look)
 		local flash = PixelUi.frame(holder, "HitFlash", 34, 28, 28, 60, Colors.Hp)
 		flash.BackgroundTransparency = 1
 
@@ -839,9 +872,33 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 
 	local function renderCorners(snapshot: Snapshot)
 		local night = snapshot.stageTag == "Night"
-		stageLabel.Text = `{if night then "NIGHT" else "NEUTRAL"} - TURN {snapshot.turn}`
+		local tag = snapshot.stageTag or "Neutral"
+		stageLabel.Text = `{STAGE_TEXT[tag] or string.upper(tag)} - TURN {snapshot.turn}`
 		stageFill.BackgroundColor3 = if night then Night.Tag else Colors.PanelLight
 		local step = snapshot.blackSabbathStep
+		local waves = snapshot.waveCount
+		-- Act fights show the wave in the second corner chip. The sandbox shows
+		-- the Black Sabbath step there.
+		stepBox.Visible = step ~= nil or (waves ~= nil and waves > 1)
+		if step == nil then
+			stepLabel.Text = if waves and waves > 1 then `WAVE {snapshot.waveIndex or 1}/{waves}` else ""
+			stepFill.BackgroundColor3 = Colors.Panel
+		end
+		local retreat = snapshot.retreatLegality
+		retreatBox.Visible = callbacks.onRetreat ~= nil and retreat ~= nil and snapshot.outcome == "InProgress"
+		if retreat then
+			local armed = retreatArmed > os.clock()
+			retreatLabel.Text = if armed then "SURE?" else "RETREAT"
+			retreatFill.BackgroundColor3 = if armed then Colors.Heavy elseif retreat.canUse and not busy then Colors.Panel else Colors.Disabled
+			retreatLabel.TextColor3 = if retreat.canUse and not busy then Colors.Text else Colors.TextDim
+		end
+		for i, line in fullLogLines do
+			local event = snapshot.log[#snapshot.log - FULL_LOG_LINES + i]
+			line.Text = if event then `T{event.turn}  {event.message}` else ""
+		end
+		if step == nil then
+			return
+		end
 		local grabStep, grabLive = grabState(snapshot)
 		-- A UV Flash or Hamon Interrupt removes the grab intent; say so instead of
 		-- still warning that it is about to land.
@@ -851,11 +908,6 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 			elseif step == "ShadowGrabWindup" then Night.Shadow
 			elseif step == "ShadowGrabLanding" then Colors.Heavy
 			else Colors.Panel
-
-		for i, line in fullLogLines do
-			local event = snapshot.log[#snapshot.log - FULL_LOG_LINES + i]
-			line.Text = if event then `T{event.turn}  {event.message}` else ""
-		end
 	end
 
 	local function intentTexts(snapshot: Snapshot, intent: Intent): (string, string)
@@ -1269,7 +1321,9 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 	local function renderCenter(snapshot: Snapshot)
 		if snapshot.outcome ~= "InProgress" then
 			showBody(detailBody)
-			centerTitle.Text = if snapshot.outcome == "Victory" then "VICTORY" else "DEFEAT"
+			centerTitle.Text = if snapshot.outcome == "Victory" then "VICTORY"
+				elseif snapshot.outcome == "Retreated" then "RETREATED"
+				else "DEFEAT"
 			centerTag.Text = ""
 			detailText.Text = "The fight is over."
 			detailOdds.Text = ""
@@ -1716,21 +1770,67 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 	end)
 
 	-- Outcome ------------------------------------------------------------------------
+	-- Set by an Act fight (for example "SAVING RESULTS..." and RETRY).
+	local outcomeNote: { line: string?, button: string? }? = nil
+
 	local function renderOutcome(snapshot: Snapshot)
-		if snapshot.outcome == "Victory" then
+		local outcome = snapshot.outcome
+		if outcome == "Victory" then
 			banner.Visible = true
 			bannerTitle.Text = "VICTORY!"
 			bannerTitle.TextColor3 = Colors.Victory
 			bannerSub.Text = "Black Sabbath is driven off."
-		elseif snapshot.outcome == "Defeat" then
+		elseif outcome == "Defeat" then
 			banner.Visible = true
 			bannerTitle.Text = "DEFEATED"
 			bannerTitle.TextColor3 = Colors.Defeat
 			bannerSub.Text = "The sandbox is safe to retry."
+		elseif outcome == "Retreated" then
+			banner.Visible = true
+			bannerTitle.Text = "RETREATED"
+			bannerTitle.TextColor3 = Colors.TextDim
+			bannerSub.Text = ""
 		else
 			banner.Visible = false
 		end
+		local note = outcomeNote
+		if note then
+			bannerSub.Text = note.line or ""
+			bannerButtonBox.Visible = note.button ~= nil
+			if note.button then
+				bannerButtonLabel.Text = note.button
+			end
+		else
+			bannerButtonBox.Visible = true
+		end
 	end
+
+	retreatButton.Activated:Connect(function()
+		local snapshot = lastSnapshot
+		local retreat = snapshot and snapshot.retreatLegality
+		local onRetreat = callbacks.onRetreat
+		if busy or not snapshot or not retreat or not onRetreat or snapshot.outcome ~= "InProgress" then
+			return
+		end
+		if not retreat.canUse then
+			toast(reasonOf(retreat))
+			return
+		end
+		if retreatArmed < os.clock() then
+			retreatArmed = os.clock() + 2
+			toast("Press RETREAT again to leave the fight. No clear rewards.")
+			renderCorners(snapshot)
+			task.delay(2.05, function()
+				local latest = lastSnapshot
+				if latest then
+					renderCorners(latest)
+				end
+			end)
+			return
+		end
+		retreatArmed = 0
+		onRetreat()
+	end)
 
 	bannerButton.Activated:Connect(function()
 		if not busy then
@@ -1834,6 +1934,14 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 
 	function self.setMock(_self: CombatHudV2, isMock: boolean)
 		mockBadge.Visible = isMock
+	end
+
+	function self.setOutcomeNote(_self: CombatHudV2, line: string?, button: string?)
+		outcomeNote = { line = line, button = button }
+		local snapshot = lastSnapshot
+		if snapshot then
+			renderOutcome(snapshot)
+		end
 	end
 
 	function self.destroy(_self: CombatHudV2)

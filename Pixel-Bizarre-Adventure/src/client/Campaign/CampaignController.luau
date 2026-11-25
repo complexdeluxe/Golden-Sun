@@ -7,7 +7,8 @@
 --   OriginSelect -> the existing Origin picker (TutorialFlow), then refresh
 --   Hub          -> HubScreen (Shop, Bag, Party, Set Out)
 --   ActMap       -> ActMapScreen
---   ActEncounter -> EncounterScreen (placeholder until the Act combat review)
+--   ActEncounter -> the compact combat HUD over ActBattleRemotes (ActBattle).
+--                   The offline mock keeps the EncounterScreen placeholder.
 --   ActResults   -> ResultsScreen
 --
 -- Snapshot rules from the contract: a call's reply is always taken (it may
@@ -27,6 +28,8 @@ local HubScreen = require(script.Parent.HubScreen)
 local ActMapScreen = require(script.Parent.ActMapScreen)
 local EncounterScreen = require(script.Parent.EncounterScreen)
 local ResultsScreen = require(script.Parent.ResultsScreen)
+local ActBattle = require(script.Parent.ActBattle)
+local ActBattleConnection = require(script.Parent.ActBattleConnection)
 
 type Snapshot = HubTypes.CampaignSnapshot
 type Response = RemoteContract.CampaignResponse
@@ -96,8 +99,12 @@ function CampaignController.run(playerGui: Instance)
 	local screen: Screen.Screen? = nil
 	local screenKind: SceneKind? = nil
 	local tutorialRunning = false
+	local battle: ActBattle.ActBattle? = nil
+	local actConnection: ActBattleConnection.Connection? = nil
+	local actConnecting = false
 	local actions: Screen.Actions
 	local accept: (incoming: Snapshot, fromEvent: boolean) -> ()
+	local show: (current: Snapshot) -> ()
 
 	local function apply(response: Response)
 		if response.ok == true then
@@ -153,8 +160,80 @@ function CampaignController.run(playerGui: Instance)
 		refresh()
 	end
 
-	local function show(current: Snapshot)
+	-- Leaves the fight: the HUD keeps its outcome banner for a moment, then the
+	-- campaign screen underneath (already drawn) comes back.
+	local function closeBattle()
+		local open = battle
+		if not open then
+			return
+		end
+		battle = nil
+		task.spawn(function()
+			open:close()
+			if battle == nil then
+				battleGui:ClearAllChildren()
+				battleGui.Enabled = false
+				campaignGui.Enabled = true
+			end
+		end)
+	end
+
+	local function openBattle(current: Snapshot): boolean
+		local scene = current.scene
+		if scene.kind ~= "ActEncounter" then
+			return false
+		end
+		local encounter = scene.encounter
+		local open = battle
+		if open and open.battleId == encounter.battleId then
+			return true
+		end
+		local act = actConnection
+		if not act then
+			if not actConnecting then
+				actConnecting = true
+				task.spawn(function()
+					actConnection = ActBattleConnection.connect()
+					actConnecting = false
+					if not actConnection then
+						toast("The fight server is not ready.")
+					end
+					local latest = snapshot
+					if latest and actConnection then
+						show(latest)
+					end
+				end)
+			end
+			return true
+		end
+		if open then
+			open:close()
+			battleGui:ClearAllChildren()
+		end
+		campaignGui.Enabled = false
+		battleGui.Enabled = true
+		battle = ActBattle.open(battleGui, act, encounter, {
+			appearance = current.character.appearance,
+			acceptCampaign = function(incoming)
+				accept(incoming, false)
+			end,
+			refreshCampaign = function()
+				apply(connection.getSnapshot())
+			end,
+		})
+		return true
+	end
+
+	function show(current: Snapshot)
 		local kind = current.scene.kind :: SceneKind
+		if kind == "ActEncounter" and not connection.isMock then
+			if openBattle(current) then
+				loading.Visible = false
+				return
+			end
+		elseif battle then
+			closeBattle()
+		end
 		if kind ~= screenKind then
 			local old = screen
 			if old then
