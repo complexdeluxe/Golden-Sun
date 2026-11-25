@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CombatTypes = require(ReplicatedStorage.Shared.Contracts.CombatTypes)
 local RemoteContract = require(ReplicatedStorage.Shared.Contracts.RemoteContract)
 local SaveTypes = require(ReplicatedStorage.Shared.Contracts.SaveTypes)
+local AppearanceTypes = require(ReplicatedStorage.Shared.Contracts.CharacterAppearanceTypes)
 local TutorialConnection = require(script.Parent.Parent.Tutorial.TutorialConnection)
 local BattleViewport = require(script.Parent.Parent.Battle.BattleViewport)
 local OriginSelect = require(script.Parent.Parent.Battle.OriginSelect)
@@ -38,7 +39,12 @@ local function waitFor(start: (finish: (Origin?) -> ()) -> ()): Origin?
 end
 
 -- The full Raining Carriage Crash tutorial, then the Origin picker.
-local function runTutorial(screenGui: ScreenGui, connection: TutorialConnection.Connection, finish: (Origin?) -> ())
+local function runTutorial(
+	screenGui: ScreenGui,
+	connection: TutorialConnection.Connection,
+	appearance: AppearanceTypes.Appearance?,
+	finish: (Origin?) -> ()
+)
 	local snapshot: CombatTypes.CombatSnapshot? = nil
 	local profile: SaveTypes.Profile? = nil
 	local busy = false
@@ -129,6 +135,7 @@ local function runTutorial(screenGui: ScreenGui, connection: TutorialConnection.
 			end)
 		end,
 		onOpenSandbox = nil,
+		playerAppearance = appearance,
 	})
 	view:setMock(connection.isMock)
 
@@ -176,13 +183,14 @@ local function runOriginSelect(screenGui: ScreenGui, connection: TutorialConnect
 	picker:show()
 end
 
-function TutorialFlow.run(screenGui: ScreenGui, mode: "Tutorial" | "OriginSelect"): Origin?
+-- `appearance` is the look committed in the Creator, drawn on the player.
+function TutorialFlow.run(screenGui: ScreenGui, mode: "Tutorial" | "OriginSelect", appearance: AppearanceTypes.Appearance?): Origin?
 	local connection = TutorialConnection.connect()
 	return waitFor(function(finish)
 		if mode == "OriginSelect" then
 			runOriginSelect(screenGui, connection, finish)
 		else
-			runTutorial(screenGui, connection, finish)
+			runTutorial(screenGui, connection, appearance, finish)
 		end
 	end)
 end

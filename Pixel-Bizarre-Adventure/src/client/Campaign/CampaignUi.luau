@@ -10,6 +10,7 @@ local AssetManifest = require(ReplicatedStorage.Shared.Contracts.AssetManifest)
 local CombatTypes = require(ReplicatedStorage.Shared.Contracts.CombatTypes)
 local AppearanceTypes = require(ReplicatedStorage.Shared.Contracts.CharacterAppearanceTypes)
 local PixelUi = require(script.Parent.Parent.Battle.PixelUi)
+local AppearanceArt = require(script.Parent.Parent.Battle.AppearanceArt)
 
 type Legality = CombatTypes.ActionLegality
 type Appearance = AppearanceTypes.Appearance
@@ -31,28 +32,6 @@ CampaignUi.Colors = {
 	Yen = Color3.fromHex("#f2c94c"),
 }
 
--- Fallback skin ramps for the preview while the body sprites are unset. The
--- Creator catalog's swatchHex wins when it is available.
-local SKIN_FALLBACK: { [string]: string } = {
-	Fair = "#f1c9a5",
-	Tan = "#d9a066",
-	Brown = "#9c6b43",
-	Deep = "#5e3b25",
-}
-
-local HAIR_COLOR = Color3.fromHex("#2b1d14")
-
--- Placeholder hair shapes keyed by catalog ID: { x, y, w, h } on the 96 px
--- canvas, head at (41, 28) size 14 x 13. Unknown IDs get a plain cap.
-local HAIR_SHAPES: { [string]: { { number } } } = {
-	bald = {},
-	buzz = { { 41, 28, 14, 2 } },
-	pompadour = { { 41, 26, 14, 4 }, { 49, 22, 9, 5 } },
-	long = { { 40, 27, 16, 4 }, { 39, 29, 3, 14 } },
-	spiky = { { 41, 27, 14, 3 }, { 42, 24, 2, 3 }, { 46, 23, 2, 4 }, { 50, 24, 2, 3 }, { 54, 25, 2, 2 } },
-	cap = { { 40, 26, 16, 4 }, { 52, 29, 7, 2 } },
-}
-local DEFAULT_HAIR = { { 41, 28, 14, 4 } }
 
 export type Button = {
 	outline: Frame,
@@ -188,8 +167,7 @@ function CampaignUi.preview(parent: Instance, name: string, x: number, y: number
 	local body = PixelUi.frame(root, "Body", 0, 0, 96, 96)
 	local function set(appearance: Appearance?, swatchHex: string?)
 		body:ClearAllChildren()
-		local skinHex = swatchHex or (appearance and SKIN_FALLBACK[appearance.skinToneId]) or SKIN_FALLBACK.Tan
-		local skin = Color3.fromHex(skinHex)
+		local skin = AppearanceArt.skinColor(appearance, swatchHex)
 		local top = Color3.fromHex("#3d6fb0")
 		local legs = Color3.fromHex("#2a2f4a")
 		local parts: { { any } } = {
@@ -204,9 +182,8 @@ function CampaignUi.preview(parent: Instance, name: string, x: number, y: number
 			PixelUi.box(body, `Part{index}`, part[1], part[2], part[3], part[4], part[5])
 		end
 		PixelUi.frame(body, "Eye", 52, 34, 2, 2, Colors.Ink)
-		local shapes = if appearance then HAIR_SHAPES[appearance.hairStyleId] or DEFAULT_HAIR else DEFAULT_HAIR
-		for index, shape in shapes do
-			PixelUi.frame(body, `Hair{index}`, shape[1], shape[2], shape[3], shape[4], HAIR_COLOR)
+		for index, shape in AppearanceArt.hairShapes(appearance) do
+			PixelUi.frame(body, `Hair{index}`, shape[1], shape[2], shape[3], shape[4], AppearanceArt.HAIR_COLOR)
 		end
 	end
 	set(nil, nil)

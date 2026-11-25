@@ -139,7 +139,9 @@ function CampaignController.run(playerGui: Instance)
 		tutorialRunning = true
 		campaignGui.Enabled = false
 		battleGui.Enabled = true
-		local origin = TutorialFlow.run(battleGui, mode)
+		local current = snapshot
+		local appearance = if current then current.character.appearance else nil
+		local origin = TutorialFlow.run(battleGui, mode, appearance)
 		battleGui:ClearAllChildren()
 		battleGui.Enabled = false
 		campaignGui.Enabled = true
