@@ -1,6 +1,6 @@
 # Phase status
 
-**Active phase** — Phase 3 campaign server, Creator through Hub and Act Map.
+**Active phase** — Phase 3 F1 combat integration.
 
 **Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement. The real Roblox DataStore restart check remains open as a separate follow-up.
 
@@ -12,12 +12,13 @@
 | 3.1 | Creator, Hub, Act 1 map, inventory, and campaign routes | Merged in PR #13 |
 | 3.3 | Saved appearance, Hub economy, loadout, and campaign remotes | Draft server implementation |
 | 3.4 | Creator, Hub, bag, map, and results screens | PR #14, verified on the campaign mock |
+| Act combat | F1 battle, Results and replay on the campaign server | F1 review branch |
 
 ## Campaign server handoff
 
 Test the server with the client from [PR #14](https://github.com/complexdeluxe/Golden-Sun/pull/14). The real campaign supports Creator, tutorial and Origin routing, the Hub, the starter Yen shop, gear and belt slots, and navigation to the Act Map. It stores campaign fields alongside the existing tutorial profile and commits mutations under an expiring session lease. Studio uses the in-memory store by default. Controlled cross-restart validation uses the isolated Studio DataStore.
 
-The starter shop and its prices are playtest data. Appearance IDs and swatches match the current client renderer. F1 remains gated until the Act combat snapshot and action routes are reviewed and implemented. Act clears, replay rewards, and recruitment will use finalized server battle results.
+The starter shop and its prices are playtest data. Appearance IDs and swatches match the current client renderer. The F1 review branch enables F1 for both Origins and uses finalized battle results for the first clear and replays. F2, D1 and recruitment remain the next server milestone.
 
 The server exposes the Phase 3 art keys through the existing Creator, inventory and map fields. The Part 1 route uses Ogre Street, Night Alley and the hideout. The Stand route draft uses Tokyo Jail, Tokyo Schoolyard and Tiger Balm Garden. The manifest uses asset ID 0 until the images receive Roblox IDs. The client can keep its current fallback art and wire layered rendering in its own follow-up.
 
@@ -27,7 +28,11 @@ For the player fighter in the tutorial and Act battle, read `CampaignSnapshot.ch
 
 The live Creator catalog exposes the eight hair swatches as `hairColors` entries with `id`, `label`, and `hex`. `CommitAppearance` accepts an optional palette color. Older saves and clients default to Jet Black (`#242633`). The existing Creator can keep submitting skin and hair IDs while the base Act 1 loop is built.
 
-The next contract review should cover the battle snapshot handed off by `StartNode`, active battle identity and revision, timed and untimed actions, and the server transition to `ActResults`. Claude can continue reviewing PR #14 in parallel. Antigravity/Gemini can continue modular hair, slice stages, and the 32 × 32 inventory icons from the [existing handoff](CLAUDE_PHASE_3_HANDOFF.md).
+### F1 client integration
+
+Use the [Act combat handoff](CLAUDE_PHASE_3_ACT_COMBAT_HANDOFF.md) to replace the real server's Encounter placeholder with the existing compact HUD. Start with the battle ID on `ActEncounter` and adapt the HUD to render the Act snapshot's actors, intents and stage. Send Primary, Secondary, QTE and mode inputs to `ActBattleRemotes`. The server advances turns and grades the rings. Accept the campaign snapshot in a battle reply or event and open the existing Results screen when it reaches `ActResults`. Refresh the campaign for **SAVING RESULTS...** and **RETRY**. Use the existing Creator and placeholder sprites to playtest.
+
+F1 uses the Ogre Street Brawler for Hamon and the Stand-Awakened Jail Thug for Stand. Both preview a heavy attack. The initial playtest pays 12 Yen and one level for the first clear and 6 Yen and zero levels for a replay. Defeat and retreat yield zero clear rewards. Equipped belt stock is spent when the server commits Results. Rejoining with an interrupted F1 returns to the map, and saved Results reopen until acknowledged there or in the Hub.
 
 ## Phase 3 contract review
 

@@ -114,6 +114,26 @@ export type CampaignResponse =
 
 export type CampaignSnapshotChanged = Hub.CampaignSnapshot
 
+-- StartNode creates the battle. These routes act on its server-issued battle ID.
+export type GetActBattleSnapshotRequest = SandboxBattleRef
+export type ActBattlePrimaryRequest = SandboxPrimaryRequest
+export type ActBattleSecondaryRequest = SandboxSecondaryRequest
+	| (SandboxBattleRevision & { kind: "Retreat", actorId: CombatTypes.ActorId })
+export type ActBattleQteCheckRequest = SandboxQteCheckRequest
+export type ActBattleQteModeRequest = SandboxQteModeRequest
+
+export type ActBattleResponse =
+	{ ok: true, snapshot: Map.ActBattleSnapshot, campaignSnapshot: Hub.CampaignSnapshot? }
+	| {
+		ok: false,
+		code: SandboxErrorCode | "ProfileLocked",
+		message: string,
+		snapshot: Map.ActBattleSnapshot?,
+		campaignSnapshot: Hub.CampaignSnapshot?,
+	}
+
+export type ActBattleSnapshotChanged = Map.ActBattleSnapshot
+
 local function remoteEvent(name: string): { read name: string, read className: "RemoteEvent" }
 	return table.freeze({ name = name, className = "RemoteEvent" :: "RemoteEvent" })
 end
@@ -139,5 +159,14 @@ return table.freeze({
 		GetCampaignSnapshot = remoteFunction("GetCampaignSnapshot"),
 		SubmitCampaignAction = remoteFunction("SubmitCampaignAction"),
 		CampaignSnapshotChanged = remoteEvent("CampaignSnapshotChanged"),
+	}),
+	ActBattle = table.freeze({
+		FolderName = "ActBattleRemotes",
+		GetActBattleSnapshot = remoteFunction("GetActBattleSnapshot"),
+		SubmitActBattlePrimary = remoteFunction("SubmitActBattlePrimary"),
+		SubmitActBattleSecondary = remoteFunction("SubmitActBattleSecondary"),
+		SubmitActBattleQteCheck = remoteFunction("SubmitActBattleQteCheck"),
+		SetActBattleQteMode = remoteFunction("SetActBattleQteMode"),
+		ActBattleSnapshotChanged = remoteEvent("ActBattleSnapshotChanged"),
 	}),
 })

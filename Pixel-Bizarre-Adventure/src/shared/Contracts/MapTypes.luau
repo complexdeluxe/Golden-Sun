@@ -47,6 +47,17 @@ export type ActiveEncounter = {
 	stageTag: StageTag,
 }
 
+export type ActBattleSnapshot = Combat.BattleHudSnapshot & {
+	encounterId: EncounterId,
+	stageTag: StageTag,
+	stageAssetKey: AssetManifest.AssetKey?,
+	waveIndex: number,
+	waveCount: number,
+	retreatLegality: Combat.ActionLegality,
+	-- InProgress covers intermediate waves. These other outcomes end the encounter.
+	outcome: Combat.CombatOutcome | "Retreated",
+}
+
 export type ItemReward = {
 	item: Inventory.ItemDisplay,
 	quantity: number,
