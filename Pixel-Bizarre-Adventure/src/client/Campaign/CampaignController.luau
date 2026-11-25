@@ -204,8 +204,14 @@ function CampaignController.run(playerGui: Instance)
 			request.expectedRevision = current.revision
 			setBusy(true)
 			local response = connection.submit(request :: any)
-			setBusy(false)
 			apply(response)
+			-- A rejection with no snapshot means the server dropped this session
+			-- (lease expired, or it was never opened). Reconnect so the next tap works.
+			local rejected = response :: any
+			if response.ok ~= true and rejected.snapshot == nil and (rejected.code == "ProfileLocked" or rejected.code == "NotReady") then
+				refresh()
+			end
+			setBusy(false)
 		end,
 		toast = toast,
 		isMock = connection.isMock,
