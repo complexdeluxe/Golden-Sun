@@ -70,12 +70,13 @@ function ActBattle.open(
 
 	local function outcomeLine(current: Snapshot): string
 		if current.outcome == "Victory" then
+			local foes: { string } = {}
 			for _, actor in current.actors do
 				if actor.team == "Enemy" then
-					return `{actor.displayName} is down.`
+					table.insert(foes, actor.displayName)
 				end
 			end
-			return "The fight is won."
+			return if #foes == 1 then `{foes[1]} is down.` else "Every foe is down."
 		elseif current.outcome == "Retreated" then
 			return "You fall back. No clear rewards."
 		end
