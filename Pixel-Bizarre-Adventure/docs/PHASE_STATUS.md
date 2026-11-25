@@ -19,6 +19,8 @@ Test the server with the client from [PR #14](https://github.com/complexdeluxe/G
 
 The starter shop and its prices are playtest data. Appearance IDs and swatches match the current client renderer. F1 remains gated until the Act combat snapshot and action routes are reviewed and implemented. Act clears, replay rewards, and recruitment will use finalized server battle results.
 
+The server exposes the Phase 3 art keys through the existing Creator, inventory and map fields. The Part 1 route uses Ogre Street, Night Alley and the hideout. The Stand route draft uses Tokyo Jail, Tokyo Schoolyard and Tiger Balm Garden. The manifest uses asset ID 0 until the images receive Roblox IDs. The client can keep its current fallback art and wire layered rendering in its own follow-up.
+
 The next contract review should cover the battle snapshot handed off by `StartNode`, active battle identity and revision, timed and untimed actions, and the server transition to `ActResults`. Claude can continue reviewing PR #14 in parallel. Antigravity/Gemini can continue modular hair, slice stages, and the 32 × 32 inventory icons from the [existing handoff](CLAUDE_PHASE_3_HANDOFF.md).
 
 ## Phase 3 contract review

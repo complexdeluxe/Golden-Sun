@@ -1,8 +1,11 @@
 --!strict
 
 local Appearance = require("../Contracts/CharacterAppearanceTypes")
+local Assets = require("../Contracts/AssetManifest")
 local Combat = require("../Contracts/CombatTypes")
 local Inventory = require("../Contracts/InventoryTypes")
+local Map = require("../Contracts/MapTypes")
+local Save = require("../Contracts/SaveTypes")
 
 export type Offer = { price: number, cap: number }
 export type Item = {
@@ -16,17 +19,17 @@ export type Item = {
 local catalog: Appearance.Catalog = {
 	defaultAppearance = { skinToneId = "Tan", hairStyleId = "buzz" },
 	skinTones = {
-		{ id = "Fair", label = "Fair", swatchHex = "#F1C9A5" },
-		{ id = "Tan", label = "Tan", swatchHex = "#D9A066" },
-		{ id = "Brown", label = "Brown", swatchHex = "#9C6B43" },
-		{ id = "Deep", label = "Deep", swatchHex = "#5E3B25" },
+		{ id = "Fair", label = "Fair", swatchHex = "#F1C9A5", bodySpriteKey = "PlayerBodyFair" },
+		{ id = "Tan", label = "Tan", swatchHex = "#D9A066", bodySpriteKey = "PlayerBodyTan" },
+		{ id = "Brown", label = "Brown", swatchHex = "#9C6B43", bodySpriteKey = "PlayerBodyBrown" },
+		{ id = "Deep", label = "Deep", swatchHex = "#5E3B25", bodySpriteKey = "PlayerBodyDeep" },
 	},
 	hairStyles = {
-		{ id = "buzz", label = "Buzz Cut", legality = { canUse = true } },
-		{ id = "pompadour", label = "Pompadour", legality = { canUse = true } },
-		{ id = "long", label = "Long", legality = { canUse = true } },
-		{ id = "spiky", label = "Spiky", legality = { canUse = true } },
-		{ id = "cap", label = "Cap", legality = { canUse = true } },
+		{ id = "buzz", label = "Buzz Cut", overlaySpriteKey = "HairBuzz", legality = { canUse = true } },
+		{ id = "pompadour", label = "Pompadour", overlaySpriteKey = "HairPompadour", legality = { canUse = true } },
+		{ id = "long", label = "Long", overlaySpriteKey = "HairLong", legality = { canUse = true } },
+		{ id = "spiky", label = "Spiky", overlaySpriteKey = "HairSpiky", legality = { canUse = true } },
+		{ id = "cap", label = "Cap", overlaySpriteKey = "HairCap", legality = { canUse = true } },
 		{ id = "bald", label = "Bald", legality = { canUse = true } },
 	},
 }
@@ -34,11 +37,11 @@ local catalog: Appearance.Catalog = {
 -- Starter prices and stock are for the Act 1 server playtest.
 local items: { [string]: Item } = {
 	["training-wraps"] = {
-		display = { itemId = "training-wraps", label = "Training Wraps", description = "Simple cloth wraps for close combat." },
+		display = { itemId = "training-wraps", label = "Training Wraps", description = "Simple cloth wraps for close combat.", iconKey = "TrainingWrapsIcon" },
 		gearSlot = "Weapon", baseStatLines = { "+2 Physical" },
 	},
 	["brimmed-cap"] = {
-		display = { itemId = "brimmed-cap", label = "Brimmed Cap", description = "An ordinary cap with a sturdy brim." },
+		display = { itemId = "brimmed-cap", label = "Brimmed Cap", description = "An ordinary cap with a sturdy brim.", iconKey = "BrimmedCapIcon" },
 		gearSlot = "Head", baseStatLines = { "+2 Focus" }, offer = { price = 45, cap = 1 },
 	},
 	["tonio-water"] = {
@@ -51,7 +54,30 @@ local items: { [string]: Item } = {
 	},
 }
 
+type Stage = { label: string, tag: Map.StageTag, assetKey: Assets.AssetKey }
+type ActOneRoute = { part: number, stages: { [Map.NodeId]: Stage } }
+
+local actOneRoutes: { [Save.Origin]: ActOneRoute } = {
+	Part1_Hamon = {
+		part = 1,
+		stages = {
+			F1 = { label = "Ogre Street", tag = "Neutral", assetKey = "OgreStreetStage" },
+			F2 = { label = "Night Alley", tag = "Night", assetKey = "NightAlleyStage" },
+			D1 = { label = "Ogre Street Hideout", tag = "Neutral", assetKey = "OgreHideoutStage" },
+		},
+	},
+	Part3_Stand = {
+		part = 3,
+		stages = {
+			F1 = { label = "Tokyo Jail", tag = "Neutral", assetKey = "TokyoJailStage" },
+			F2 = { label = "Tokyo Schoolyard", tag = "Neutral", assetKey = "TokyoSchoolyardStage" },
+			D1 = { label = "Tiger Balm Garden", tag = "Neutral", assetKey = "TigerBalmGardenStage" },
+		},
+	},
+}
+
 return table.freeze({
+	ActOneRoutes = actOneRoutes,
 	Catalog = catalog,
 	Items = items,
 	ItemOrder = table.freeze({ "training-wraps", "brimmed-cap", "tonio-water", "med-kit" }),

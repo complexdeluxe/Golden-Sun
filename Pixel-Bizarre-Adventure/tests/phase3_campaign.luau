@@ -1,6 +1,7 @@
 --!strict
 
 local Appearance = require("../src/shared/Contracts/CharacterAppearanceTypes")
+local Assets = require("../src/shared/Contracts/AssetManifest")
 local Hub = require("../src/shared/Contracts/HubTypes")
 local Remote = require("../src/shared/Contracts/RemoteContract")
 local Session = require("../src/shared/Core/CampaignSession")
@@ -44,6 +45,16 @@ local first = session()
 local rival = session()
 local creator = accepted(first.get(1))
 assert(creator.scene.kind == "Creator")
+for _, skin in creator.scene.catalog.skinTones do
+	assert(skin.bodySpriteKey and Assets[skin.bodySpriteKey])
+end
+for _, hair in creator.scene.catalog.hairStyles do
+	if hair.id == "bald" then
+		assert(hair.overlaySpriteKey == nil)
+	else
+		assert(hair.overlaySpriteKey and Assets[hair.overlaySpriteKey])
+	end
+end
 denied(rival.get(1), "ProfileLocked")
 local deepBald: Appearance.Appearance = { skinToneId = "Deep", hairStyleId = "bald" }
 local look: Remote.CampaignActionRequest = {
@@ -60,6 +71,8 @@ assert(accepted(first.get(1)).scene.kind == "OriginSelect")
 rows[1].origin = "Part1_Hamon"
 local hub = accepted(first.get(1))
 assert(hub.scene.kind == "Hub" and hub.character.origin == "Part1_Hamon")
+assert(hub.scene.hub.shopOffers[1].item.iconKey == "BrimmedCapIcon")
+assert(hub.scene.inventory.entries[1].item.iconKey == "TrainingWrapsIcon")
 
 local purchase: Remote.CampaignActionRequest = {
 	kind = "PurchaseOffer", offerId = "tonio-water", quantity = 2,
@@ -98,6 +111,11 @@ local map = accepted(first.submit(1, {
 	kind = "Navigate", sessionId = belted.sessionId, expectedRevision = belted.revision, destination = "ActMap",
 }))
 assert(map.scene.kind == "ActMap" and map.scene.map.nodes[2].state == "Locked")
+assert(map.scene.map.act == 1 and map.scene.map.part == 1)
+local hamonNodes = map.scene.map.nodes
+assert(hamonNodes[1].stageAssetKey == "OgreStreetStage" and hamonNodes[1].stageTag == "Neutral")
+assert(hamonNodes[2].stageAssetKey == "NightAlleyStage" and hamonNodes[2].stageTag == "Night")
+assert(hamonNodes[3].stageAssetKey == "OgreHideoutStage")
 denied(first.submit(1, {
 	kind = "StartNode", sessionId = map.sessionId, expectedRevision = map.revision, nodeId = "F1", playOptionId = "F1:first",
 }), "NotReady")
@@ -126,6 +144,15 @@ local migrated = accepted(first.submit(2, {
 	sessionId = migrating.sessionId, expectedRevision = migrating.revision,
 }))
 assert(migrated.scene.kind == "Hub" and migrated.character.origin == "Part3_Stand")
+local standMap = accepted(first.submit(2, {
+	kind = "Navigate", sessionId = migrated.sessionId, expectedRevision = migrated.revision, destination = "ActMap",
+}))
+assert(standMap.scene.kind == "ActMap" and standMap.scene.map.act == 1 and standMap.scene.map.part == 3)
+local standNodes = standMap.scene.map.nodes
+assert(standNodes[1].id == "F1" and standNodes[1].stageAssetKey == "TokyoJailStage")
+assert(standNodes[2].prerequisites[1] == "F1" and standNodes[2].stageAssetKey == "TokyoSchoolyardStage")
+assert(standNodes[3].prerequisites[1] == "F2" and standNodes[3].stageAssetKey == "TigerBalmGardenStage")
+assert(standNodes[1].playOptions[1].legality.canUse == false)
 
 now += 181
 local recovered = accepted(rival.get(2))
@@ -137,4 +164,4 @@ local changed = first.submit(2, {
 denied(changed, "ProfileLocked")
 assert(accepted(rival.get(2)).character.yen == migrated.character.yen)
 
-print("Campaign server passed: profile routing, migration, shop, loadout, map gate, persistence, and session locking")
+print("Campaign server passed: profile routing, migration, asset bindings, both Act 1 maps, shop, loadout, and session locking")

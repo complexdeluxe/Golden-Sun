@@ -138,22 +138,27 @@ end
 function Profile.scene(profile: Profile, tutorial: Save.Profile, destination: Destination): Hub.Scene
 	if not profile.appearance then return { kind = "Creator", catalog = Starter.Catalog } end
 	if not tutorial.tutorialCompleted then return { kind = "Tutorial" } end
-	if not tutorial.origin then return { kind = "OriginSelect" } end
+	local origin = tutorial.origin
+	if not origin then return { kind = "OriginSelect" } end
 	if destination == "ActMap" then
 		local blockedStart: Map.PlayOption = {
 			id = "F1:first", label = "Set out", mode = "FirstClear", tier = 1, levelsOnClear = 1,
 			legality = blocked("Act combat is awaiting integration."),
 		}
-		return {
-			kind = "ActMap",
-			map = {
-				act = 1, part = 1, nodes = {
-					{ id = "F1", label = "Ogre Street", prerequisites = {}, state = "Available", stageTag = "Neutral", playOptions = { blockedStart } },
-					{ id = "F2", label = "Night Alley", prerequisites = { "F1" }, state = "Locked", stageTag = "Night", playOptions = {} },
-					{ id = "D1", label = "Ogre Street Hideout", prerequisites = { "F2" }, state = "Locked", stageTag = "Neutral", playOptions = {} },
-				},
-			},
-		}
+		local route = Starter.ActOneRoutes[origin]
+		local nodes: { Map.NodeView } = {}
+		for index, nodeId in Map.NodeOrder do
+			local stage = route.stages[nodeId]
+			local previous = Map.NodeOrder[index - 1]
+			local node: Map.NodeView = {
+				id = nodeId, label = stage.label, stageTag = stage.tag, stageAssetKey = stage.assetKey,
+				prerequisites = if previous then { previous } else {},
+				state = if previous then "Locked" else "Available",
+				playOptions = if previous then {} else { blockedStart },
+			}
+			table.insert(nodes, node)
+		end
+		return { kind = "ActMap", map = { act = 1, part = route.part, nodes = nodes } }
 	end
 	return { kind = "Hub", hub = { shopOffers = shop(profile), setOutLegality = OK }, inventory = inventory(profile) }
 end
