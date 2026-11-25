@@ -1,6 +1,6 @@
 # Phase status
 
-**Active phase** — Phase 3.1 contract review for the Creator, Hub and Act 1 slice.
+**Active phase** — Phase 3 campaign server, Creator through Hub and Act Map.
 
 **Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement. The real Roblox DataStore restart check remains open as a separate follow-up.
 
@@ -9,7 +9,17 @@
 | 2A | Sandbox data shapes, remote names, asset keys, and HUD review | Merged in PR #9 |
 | 2B | Audited combat math and server sandbox | Merged and verified with Combat HUD v2 |
 | 2B client | Compact HUD and Manual ring QTE | Merged in PR #10 |
-| 3.1 | Creator, Hub, Act 1 map, inventory, and campaign routes | Draft for contract review |
+| 3.1 | Creator, Hub, Act 1 map, inventory, and campaign routes | Merged in PR #13 |
+| 3.3 | Saved appearance, Hub economy, loadout, and campaign remotes | Draft server implementation |
+| 3.4 | Creator, Hub, bag, map, and results screens | PR #14, verified on the campaign mock |
+
+## Campaign server handoff
+
+Test the server with the client from [PR #14](https://github.com/complexdeluxe/Golden-Sun/pull/14). The real campaign supports Creator, tutorial and Origin routing, the Hub, the starter Yen shop, gear and belt slots, and navigation to the Act Map. It stores campaign fields alongside the existing tutorial profile and commits mutations under an expiring session lease. Studio uses the in-memory store by default. Controlled cross-restart validation uses the isolated Studio DataStore.
+
+The starter shop and its prices are playtest data. Appearance IDs and swatches match the current client renderer. F1 remains gated until the Act combat snapshot and action routes are reviewed and implemented. Act clears, replay rewards, and recruitment will use finalized server battle results.
+
+The next contract review should cover the battle snapshot handed off by `StartNode`, active battle identity and revision, timed and untimed actions, and the server transition to `ActResults`. Claude can continue reviewing PR #14 in parallel. Antigravity/Gemini can continue modular hair, slice stages, and the 32 × 32 inventory icons from the [existing handoff](CLAUDE_PHASE_3_HANDOFF.md).
 
 ## Phase 3 contract review
 

@@ -1,0 +1,140 @@
+--!strict
+
+local Appearance = require("../src/shared/Contracts/CharacterAppearanceTypes")
+local Hub = require("../src/shared/Contracts/HubTypes")
+local Remote = require("../src/shared/Contracts/RemoteContract")
+local Session = require("../src/shared/Core/CampaignSession")
+
+local rows: { [number]: { [string]: unknown } } = {}
+local now = 100
+local id = 0
+local failWrite = false
+local loseResponse = false
+local store: Session.Store = {
+	load = function(userId) return rows[userId], true end,
+	update = function(userId, transform)
+		if failWrite then return nil, false end
+		local updated = transform(rows[userId])
+		if updated then rows[userId] = updated end
+		if loseResponse then
+			loseResponse = false
+			return nil, false
+		end
+		return updated, true
+	end,
+}
+
+local function session()
+	return Session.new(store, function() return now end, function()
+		id += 1
+		return "session-" .. tostring(id)
+	end)
+end
+
+local function accepted(result: Remote.CampaignResponse): Hub.CampaignSnapshot
+	assert(result.ok, if result.ok then "" else result.message)
+	return result.snapshot
+end
+
+local function denied(result: Remote.CampaignResponse, code: Remote.CampaignErrorCode)
+	assert(not result.ok and result.code == code, "Expected " .. code)
+end
+
+local first = session()
+local rival = session()
+local creator = accepted(first.get(1))
+assert(creator.scene.kind == "Creator")
+denied(rival.get(1), "ProfileLocked")
+local deepBald: Appearance.Appearance = { skinToneId = "Deep", hairStyleId = "bald" }
+local look: Remote.CampaignActionRequest = {
+	kind = "CommitAppearance", appearance = deepBald,
+	sessionId = creator.sessionId, expectedRevision = creator.revision,
+}
+local tutorial = accepted(first.submit(1, look))
+assert(tutorial.scene.kind == "Tutorial" and tutorial.character.appearance and tutorial.character.appearance.skinToneId == "Deep")
+denied(first.submit(1, look), "StaleRevision")
+
+-- Simulate the existing tutorial routes writing the root profile.
+rows[1].tutorialCompleted = true
+assert(accepted(first.get(1)).scene.kind == "OriginSelect")
+rows[1].origin = "Part1_Hamon"
+local hub = accepted(first.get(1))
+assert(hub.scene.kind == "Hub" and hub.character.origin == "Part1_Hamon")
+
+local purchase: Remote.CampaignActionRequest = {
+	kind = "PurchaseOffer", offerId = "tonio-water", quantity = 2,
+	sessionId = hub.sessionId, expectedRevision = hub.revision,
+}
+failWrite = true
+denied(first.submit(1, purchase), "SaveUnavailable")
+assert(accepted(first.get(1)).character.yen == hub.character.yen)
+failWrite = false
+loseResponse = true
+denied(first.submit(1, purchase), "SaveUnavailable")
+denied(first.submit(1, purchase), "StaleRevision")
+local stocked = accepted(first.get(1))
+assert(stocked.character.yen == hub.character.yen - 20)
+assert(stocked.scene.kind == "Hub")
+local waterCount = 0
+for _, entry in stocked.scene.inventory.entries do
+	if entry.kind == "Stack" and entry.beltItemId == "MineralWater" then waterCount = entry.quantity end
+end
+assert(waterCount == 4)
+
+local geared = accepted(first.submit(1, {
+	kind = "SetGearSlot", sessionId = stocked.sessionId, expectedRevision = stocked.revision,
+	slot = "Weapon", entryId = "training-wraps",
+}))
+local belted = accepted(first.submit(1, {
+	kind = "SetBeltSlot", sessionId = geared.sessionId, expectedRevision = geared.revision,
+	index = 1, entryId = "tonio-water",
+}))
+denied(first.submit(1, {
+	kind = "SetBeltSlot", sessionId = belted.sessionId, expectedRevision = belted.revision,
+	index = 2, entryId = "tonio-water",
+}), "IllegalAction")
+
+local map = accepted(first.submit(1, {
+	kind = "Navigate", sessionId = belted.sessionId, expectedRevision = belted.revision, destination = "ActMap",
+}))
+assert(map.scene.kind == "ActMap" and map.scene.map.nodes[2].state == "Locked")
+denied(first.submit(1, {
+	kind = "StartNode", sessionId = map.sessionId, expectedRevision = map.revision, nodeId = "F1", playOptionId = "F1:first",
+}), "NotReady")
+denied(first.submit(1, {
+	kind = "SetBeltSlot", sessionId = map.sessionId, expectedRevision = map.revision, index = 1, entryId = nil,
+}), "IllegalAction")
+
+now += 100
+first.renew(1)
+now += 90
+denied(rival.get(1), "ProfileLocked")
+first.close(1)
+local restored = accepted(rival.get(1))
+assert(restored.sessionId ~= creator.sessionId and restored.scene.kind == "Hub")
+assert(restored.character.appearance and restored.character.appearance.skinToneId == "Deep")
+assert(restored.character.origin == "Part1_Hamon" and restored.character.yen == stocked.character.yen)
+assert(restored.scene.inventory.gear[1].entryId == "training-wraps")
+assert(restored.scene.inventory.belt[1].entryId == "tonio-water")
+
+rows[2] = { version = 1, tutorialCompleted = true, origin = "Part3_Stand" }
+local migrating = accepted(first.get(2))
+assert(migrating.scene.kind == "Creator" and migrating.character.origin == "Part3_Stand")
+local tanBald: Appearance.Appearance = { skinToneId = "Tan", hairStyleId = "bald" }
+local migrated = accepted(first.submit(2, {
+	kind = "CommitAppearance", appearance = tanBald,
+	sessionId = migrating.sessionId, expectedRevision = migrating.revision,
+}))
+assert(migrated.scene.kind == "Hub" and migrated.character.origin == "Part3_Stand")
+
+now += 181
+local recovered = accepted(rival.get(2))
+assert(recovered.scene.kind == "Hub")
+local changed = first.submit(2, {
+	kind = "PurchaseOffer", offerId = "tonio-water", quantity = 1,
+	sessionId = migrated.sessionId, expectedRevision = migrated.revision,
+})
+denied(changed, "ProfileLocked")
+assert(accepted(rival.get(2)).character.yen == migrated.character.yen)
+
+print("Campaign server passed: profile routing, migration, shop, loadout, map gate, persistence, and session locking")
