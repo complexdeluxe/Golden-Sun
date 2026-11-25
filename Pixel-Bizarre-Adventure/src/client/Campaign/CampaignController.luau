@@ -64,10 +64,11 @@ function CampaignController.run(playerGui: Instance)
 	local screens = PixelUi.frame(root, "Screens", 0, 0, 320, 180)
 	local loading = PixelUi.label(root, "Loading", 0, 84, 320, 10, "LOADING...", Colors.TextDim, Enum.TextXAlignment.Center)
 
-	local toastOutline, toastFill = PixelUi.box(root, "Toast", 40, 150, 240, 14, Colors.PanelLight)
+	-- Just under the top bar, clear of the station buttons and START.
+	local toastOutline, toastFill = PixelUi.box(root, "Toast", 60, 16, 200, 14, Colors.PanelLight)
 	toastOutline.ZIndex = 10
 	toastOutline.Visible = false
-	local toastLabel = PixelUi.label(toastFill, "Text", 2, 0, 236, 12, "", Colors.Text, Enum.TextXAlignment.Center)
+	local toastLabel = PixelUi.label(toastFill, "Text", 2, 0, 196, 12, "", Colors.Text, Enum.TextXAlignment.Center)
 	local toastToken = 0
 	local mockBadge = PixelUi.label(root, "ServerBadge", 160, 2, 62, 10, "", Colors.Mock, Enum.TextXAlignment.Right)
 	mockBadge.ZIndex = 10
