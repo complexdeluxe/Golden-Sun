@@ -31,7 +31,7 @@ Claude owns the Creator, Hub, Act Map, and Inventory/Loadout screens. Codex owns
 | Where can players change the loadout? | Players change gear and belt slots from the Hub. The Act Map includes a Hub button that submits `Navigate` with destination `"Hub"`. |
 | How does tutorial routing work? | `Tutorial` and `OriginSelect` use the existing `TutorialRemotes` flow. After the tutorial clear the existing Origin picker can continue. Fetch `GetCampaignSnapshot({})` after `ChooseOrigin` succeeds to enter the Hub. If the session resumes between clear and selection, render the Origin picker from the `OriginSelect` scene. |
 
-The general Act encounter combat protocol gets a separate review before connecting the map to the battle HUD. The client can build the screen flows against the frozen Campaign contracts in the meantime.
+The [Act encounter combat handoff](CLAUDE_PHASE_3_ACT_COMBAT_HANDOFF.md) covers the separate review for connecting the map to the existing combat HUD. The screen flows use the frozen Campaign contracts.
 
 ## Exit checks
 

@@ -37,6 +37,7 @@ export type CampaignSnapshot = {
 	revision: number,
 	character: {
 		appearance: Appearance.Appearance?,
+		appearanceSprites: Appearance.AppearanceSprites?,
 		tutorialCompleted: boolean,
 		origin: Save.Origin?,
 		level: number,

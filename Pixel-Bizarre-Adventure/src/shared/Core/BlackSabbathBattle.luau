@@ -1,6 +1,7 @@
 --!strict
 
 local Combat = require("../Contracts/CombatTypes")
+local Assets = require("../Contracts/AssetManifest")
 local Remote = require("../Contracts/RemoteContract")
 local Math = require("./SandboxMath")
 local Encounter = require("../Data/BlackSabbathEncounter")
@@ -15,6 +16,22 @@ local RING_LEAD_SECONDS = 0.15
 local RING_APPROACH_SECONDS = 1.15
 local RING_HIT_WINDOW_SECONDS = 0.75
 local RING_RESET_SECONDS = 0.30
+
+export type ActOpponent = {
+	id: string,
+	label: string,
+	jabLabel: string,
+	heavyLabel: string,
+	hp: number?,
+	jabPower: number?,
+	heavyPower: number?,
+	heavyStatus: ("Bleed" | "Stun")?,
+}
+
+export type ActCompanion = {
+	label: string,
+	spriteKey: Assets.AssetKey?,
+}
 
 type Actor = {
 	view: Combat.SandboxActorState,
@@ -48,6 +65,9 @@ export type State = {
 	level: number,
 	act: number,
 	stage: "Night" | "Neutral",
+	enemyId: string,
+	actOpponent: ActOpponent?,
+	waveStartsOn: number?,
 	mode: Combat.QteMode,
 	revision: number,
 	round: number,
@@ -143,16 +163,20 @@ local function applyDamage(state: State, source: Actor, target: Actor, damage: n
 		message = string.format("%s %s %d damage.", view.displayName, verb, damageTaken),
 	})
 	if view.hp == 0 then
-		note(state, "Defeated", view.displayName .. " falls.", view.id)
-		if view.id == SABBATH then
+		local surrender = view.team == "Enemy" and state.actOpponent ~= nil
+		note(state, "Defeated", view.displayName .. (if surrender then " yields." else " falls."), view.id)
+		local companion = state.actors[COMPANION]
+		if view.id == state.enemyId then
 			state.outcome = "Victory"
-		elseif state.actors[PLAYER].view.hp == 0 and state.actors[COMPANION].view.hp == 0 then
+		elseif state.actors[PLAYER].view.hp == 0 and (not companion or companion.view.hp == 0) then
 			state.outcome = "Defeat"
 		end
 		if state.outcome ~= "InProgress" then
 			state.active = nil
 			state.intent = nil
-			note(state, "Outcome", if state.outcome == "Victory" then "Black Sabbath is defeated." else "The party falls.")
+			if not surrender then
+				note(state, "Outcome", if state.outcome == "Victory" then view.displayName .. " is defeated." else "The party falls.")
+			end
 		end
 	elseif view.team == "Player" and not target.lowHpTriggered and before > view.maxHp * 0.25 and view.hp <= view.maxHp * 0.25 then
 		target.lowHpTriggered = true
@@ -162,7 +186,7 @@ end
 
 local function canInterrupt(state: State, target: Actor): boolean
 	local intent = state.intent
-	return intent ~= nil and intent.targetId ~= "" and intent.stage == "Windup" and target.view.id == SABBATH
+	return intent ~= nil and intent.offensiveInterruptible and target.view.id == state.enemyId
 end
 
 local function cancelGrab(state: State, sourceId: string, offensive: boolean)
@@ -171,8 +195,9 @@ local function cancelGrab(state: State, sourceId: string, offensive: boolean)
 	state.exposed = offensive
 	raise(state, {
 		turn = state.round, kind = if offensive then "Interrupt" else "UVCancel", actorId = sourceId,
-		targetId = SABBATH, intentId = intent.id,
-		message = if offensive then "Shadow Grab breaks. Black Sabbath is Exposed (-15 Mitigation)." else "UV Flash cancels Shadow Grab.",
+		targetId = state.enemyId, intentId = intent.id,
+		message = if offensive then intent.label .. " breaks. " .. state.actors[state.enemyId].view.displayName .. " is Exposed (-15 Mitigation)."
+			else "UV Flash cancels Shadow Grab.",
 	})
 end
 
@@ -238,7 +263,7 @@ local function resolvePrimary(state: State, actor: Actor, target: Actor, move: E
 	if interrupted then cancelGrab(state, actor.view.id, true) end
 
 	local partner = state.actors[if actor.view.id == PLAYER then COMPANION else PLAYER]
-	if manualPerfect and not state.assistUsed and partner.view.hp > 0 and not partner.stunned then
+	if manualPerfect and not state.assistUsed and partner and partner.view.hp > 0 and not partner.stunned then
 		state.assistUsed = true
 		note(state, "Assist", partner.view.displayName .. " follows up at 25% strength.", partner.view.id)
 		local assistRaw = Math.basicRaw(state.level, math.max(partner.physical, partner.special))
@@ -262,17 +287,19 @@ end
 local function enemyTurn(state: State)
 	local intent = state.intent
 	if not intent or intent.landingTurn ~= state.round then return end
-	local enemy = state.actors[SABBATH]
+	local enemy = state.actors[state.enemyId]
 	local target = state.actors[intent.targetId]
 	local grab = intent.moveId == "ShadowGrab"
+	local flag = state.actOpponent
+	local status = if grab then "Stun" elseif flag and intent.moveId == "FlagHeavy" then flag.heavyStatus else nil
 	state.intent = nil
 	if target.view.hp == 0 then
-		note(state, "Action", intent.label .. " loses its target.", SABBATH)
+		note(state, "Action", intent.label .. " loses its target.", state.enemyId)
 		return
 	end
 	if not chance(state, 100 - dodge(target)) then
 		raise(state, {
-			turn = state.round, kind = "Dodged", actorId = SABBATH, targetId = target.view.id,
+			turn = state.round, kind = "Dodged", actorId = state.enemyId, targetId = target.view.id,
 			moveId = intent.moveId, message = target.view.displayName .. " dodges " .. intent.label .. ".",
 		})
 		return
@@ -281,9 +308,16 @@ local function enemyTurn(state: State)
 		raw = intent.estimatedPower, defense = target.defense, armor = target.view.armor,
 		guarding = target.view.isDefending, act = state.act, stageMatch = state.stage == "Night",
 	}), intent.moveId, nil)
-	if grab and target.view.hp > 0 and not target.view.isDefending and chance(state, Math.statusChance(100, Math.focusResist(target.focus))) then
-		target.stunned = true
-		note(state, "Status", target.view.displayName .. " is Stunned.", target.view.id)
+	if status and target.view.hp > 0 and not target.view.isDefending and chance(state, Math.statusChance(100, Math.focusResist(target.focus))) then
+		if status == "Stun" then
+			target.stunned = true
+		else
+			for i = #target.view.statuses, 1, -1 do
+				if target.view.statuses[i].id == "Bleed" then table.remove(target.view.statuses, i) end
+			end
+			table.insert(target.view.statuses, { id = "Bleed" :: "Bleed", label = "Bleed", isRemovable = true, turnsRemaining = 2 })
+		end
+		note(state, "Status", target.view.displayName .. (if status == "Stun" then " is Stunned." else " is Bleeding."), target.view.id)
 	end
 end
 
@@ -291,10 +325,30 @@ local function startRound(state: State)
 	state.queue = {}
 	state.queueIndex = 0
 	state.assistUsed = false
-	state.actors[SABBATH].baseDodge = if step(state) == "FadeIntoShadow" then Limits.FadeDodgePp else 0
 	local target = if state.actors[PLAYER].view.hp > 0 then PLAYER else COMPANION
 	local beat = step(state)
-	if beat == "LighterStrike" then
+	local flag = state.actOpponent
+	if flag then
+		local flagBeat = (state.round - (state.waveStartsOn or 1)) % 4
+		if flagBeat == 2 then
+			if state.intent then
+				state.intent.stage = "Landing"
+				state.intent.offensiveInterruptible = false
+			end
+		else
+			local windup = flagBeat == 1
+			local landing = state.round + (if windup then 1 else 0)
+			state.intent = {
+				id = state.id .. ":" .. tostring(landing), actorId = flag.id,
+				moveId = if windup then "FlagHeavy" else "FlagJab",
+				label = if windup then flag.heavyLabel else flag.jabLabel, targetId = target, landingTurn = landing,
+				telegraphKind = if windup then "Heavy" else "Attack",
+				estimatedPower = if windup then (flag.heavyPower or 15) else (flag.jabPower or 8),
+				targeting = "Single", stage = if windup then "Windup" else "Scheduled",
+				offensiveInterruptible = windup, uvCancelable = false,
+			}
+		end
+	elseif beat == "LighterStrike" then
 		setIntent(state, target, false)
 	elseif beat == "ShadowGrabWindup" then
 		setIntent(state, target, true)
@@ -305,6 +359,9 @@ local function startRound(state: State)
 		state.intent.offensiveInterruptible = false
 	elseif beat == "FadeIntoShadow" then
 		note(state, "Status", "Black Sabbath fades (+20 Dodge).", SABBATH)
+	end
+	if not flag then
+		state.actors[SABBATH].baseDodge = if beat == "FadeIntoShadow" then Limits.FadeDodgePp else 0
 	end
 
 	for _, id in state.roster do
@@ -332,6 +389,16 @@ local function nextTurn(state: State)
 		if view.team == "Enemy" then
 			enemyTurn(state)
 			continue
+		end
+		if state.actOpponent then
+			for i, status in view.statuses do
+				if status.id ~= "Bleed" then continue end
+				local remaining = (status.turnsRemaining or 1) - 1
+				if remaining == 0 then table.remove(view.statuses, i) else status.turnsRemaining = remaining end
+				applyDamage(state, state.actors[state.enemyId], actor, 2, "Bleed", nil)
+				break
+			end
+			if view.hp == 0 then continue end
 		end
 
 		state.active = view.id
@@ -401,7 +468,7 @@ local function primaryLegality(state: State, actor: Actor, move: Encounter.Move,
 	end
 	if view.stamina < move.cost then return blocked("Not enough Stamina.") end
 	if move.id == "Finisher" and not view.finisherReady then return blocked("Finisher requires On Fire.") end
-	if move.id == "HamonInterrupt" and not canInterrupt(state, state.actors[SABBATH]) then return blocked("No interruptible windup.") end
+	if move.id == "HamonInterrupt" and not canInterrupt(state, state.actors[state.enemyId]) then return blocked("No interruptible windup.") end
 	return ALLOWED
 end
 
@@ -431,7 +498,7 @@ local function viewOptions(state: State, actor: Actor?): { Combat.PrimaryOption 
 	if actor then
 		local slot = availablePrimarySlot(actor) or "Primary"
 		for _, move in Encounter.Moves do
-			local target = if move.id == "Defend" then actor else state.actors[SABBATH]
+			local target = if move.id == "Defend" then actor else state.actors[state.enemyId]
 			table.insert(options, {
 				moveId = move.id, label = move.label, scalingTag = move.tag, staminaCost = move.cost, slot = slot,
 				legality = primaryLegality(state, actor, move, slot), targets = { targetOdds(state, actor, move, target) },
@@ -507,10 +574,11 @@ end
 local function itemTargets(state: State, item: Encounter.Item, actor: Actor?): { Combat.BeltPreview }
 	local targets: { Combat.BeltPreview } = {}
 	if item.id == "UVFlash" then
-		table.insert(targets, beltPreview(state, actor, state.actors[SABBATH], item))
+		table.insert(targets, beltPreview(state, actor, state.actors[state.enemyId], item))
 	else
 		for _, id in { PLAYER, COMPANION } do
-			table.insert(targets, beltPreview(state, actor, state.actors[id], item))
+			local target = state.actors[id]
+			if target then table.insert(targets, beltPreview(state, actor, target, item)) end
 		end
 	end
 	return targets
@@ -519,6 +587,7 @@ end
 local function beltView(state: State, actor: Actor?): Combat.PartyBelt
 	local items: { Combat.BeltItemView } = {}
 	for _, item in Encounter.Items do
+		if state.actOpponent and state.stock[item.id] == nil then continue end
 		local targets = itemTargets(state, item, actor)
 		local legality = targets[1].legality
 		for _, target in targets do
@@ -564,24 +633,25 @@ local function promptView(challenge: Challenge?): Combat.QtePrompt?
 	return { id = challenge.id, mode = "UntimedCue", kind = "HighRiskThreeCheck", checks = checks, checkResults = table.clone(challenge.results), nextCheckIndex = challenge.nextIndex }
 end
 
-function Battle.snapshot(state: State): Combat.SandboxSnapshot
+function Battle.hudSnapshot(state: State): Combat.BattleHudSnapshot
 	local actors: { Combat.SandboxActorState } = {}
 	for _, id in state.roster do
 		local actor = state.actors[id]
 		local view = table.clone(actor.view)
-		view.statuses = table.clone(view.statuses)
+		view.statuses = {}
+		for index, status in actor.view.statuses do view.statuses[index] = table.clone(status) end
 		view.dodgePercent = dodge(actor)
 		if actor.stunned then table.insert(view.statuses, { id = "Stun" :: "Stun", label = "Stun", isRemovable = false, turnsRemaining = 1 }) end
 		if id == SABBATH and actor.baseDodge > 0 then
 			table.insert(view.statuses, { id = "Fade" :: "Fade", label = "Fade", isRemovable = false, turnsRemaining = 1 })
 		end
-		if id == SABBATH and state.exposed then table.insert(view.statuses, { id = "Exposed" :: "Exposed", label = "Exposed", isRemovable = false }) end
+		if id == state.enemyId and state.exposed then table.insert(view.statuses, { id = "Exposed" :: "Exposed", label = "Exposed", isRemovable = false }) end
 		table.insert(actors, view)
 	end
 
 	local active = if state.active then state.actors[state.active] else nil
-	local companion = state.actors[COMPANION].view
-	local beat = step(state)
+	local partner = state.actors[COMPANION]
+	local companion = if partner then partner.view else nil
 	local exposureOwner: string? = nil
 	if active and (active.view.primaryAvailable or active.view.bonusPrimaryAvailable or state.qte ~= nil) then
 		exposureOwner = active.view.id
@@ -599,20 +669,26 @@ function Battle.snapshot(state: State): Combat.SandboxSnapshot
 		activeActorId = state.active, actors = actors, turnOrder = table.clone(state.queue),
 		enemyIntents = if state.intent then { table.clone(state.intent) } else {}, primaryOptions = viewOptions(state, active),
 		endTurnLegality = endTurnLegality(state, active), belt = beltView(state, active),
-		companion = {
+		companion = if companion then {
 			actorId = COMPANION, tacticMode = state.tactic,
 			tacticLegality = if companion.hp > 0 then secondaryLegality(state, active) else blocked("Companion is defeated."),
 			assistAvailableThisRound = companion.hp > 0 and not state.assistUsed, redirect = redirectView(state, active),
-		},
-		exposure = if state.exposed then { targetId = SABBATH, mitigationPenaltyPp = Limits.ExposedMitigationPp, exposedFollowUpActorId = exposureOwner } else nil,
-		qteMode = state.mode, qtePrompt = promptView(state.qte), stageTag = state.stage,
-		blackSabbathStep = beat, log = table.clone(state.log), outcome = state.outcome,
+		} else nil,
+		exposure = if state.exposed then { targetId = state.enemyId, mitigationPenaltyPp = Limits.ExposedMitigationPp, exposedFollowUpActorId = exposureOwner } else nil,
+		qteMode = state.mode, qtePrompt = promptView(state.qte), log = table.clone(state.log),
 	}
 end
 
+function Battle.snapshot(state: State): Combat.SandboxSnapshot
+	local snapshot = Battle.hudSnapshot(state) :: Combat.SandboxSnapshot
+	snapshot.stageTag = state.stage
+	snapshot.blackSabbathStep = step(state)
+	snapshot.outcome = state.outcome
+	return snapshot
+end
 
 local function newActor(id: string, name: string, level: number, act: number): Actor
-	local enemy = id == SABBATH
+	local enemy = id ~= PLAYER and id ~= COMPANION
 	local companion = id == COMPANION
 	local hp = if enemy then math.floor((44 + 6 * level) * 1.65) else Math.playerHp(level, if companion then 0 else level)
 	local focus = if companion then 30 else 0
@@ -642,7 +718,7 @@ function Battle.new(id: string, request: Remote.StartSandboxRequest, random: () 
 	local stock: { [Combat.BeltItemId]: number } = {}
 	for _, item in Encounter.Items do stock[item.id] = item.stock end
 	local state: State = {
-		id = id, level = level, act = act, stage = request.stageTag, mode = request.qteMode, revision = 1, round = 1,
+		id = id, level = level, act = act, stage = request.stageTag, mode = request.qteMode, revision = 1, round = 1, enemyId = SABBATH,
 		actors = {
 			[PLAYER] = newActor(PLAYER, "You", level, act), [COMPANION] = newActor(COMPANION, "Companion", level, act),
 			[SABBATH] = newActor(SABBATH, "Black Sabbath", level, act),
@@ -656,6 +732,71 @@ function Battle.new(id: string, request: Remote.StartSandboxRequest, random: () 
 	startRound(state)
 	nextTurn(state)
 	return state
+end
+
+export type ActSetup = {
+	level: number,
+	opponent: ActOpponent,
+	stock: { [Combat.BeltItemId]: number },
+	physicalBonus: number,
+	focus: number,
+	companion: ActCompanion?,
+}
+
+local function actEnemy(opponent: ActOpponent, level: number): Actor
+	local enemy = newActor(opponent.id, opponent.label, level, 1)
+	local hp = opponent.hp or 46
+	enemy.view.hp, enemy.view.maxHp = hp, hp
+	enemy.view.spriteKey = nil
+	enemy.defense = 14
+	return enemy
+end
+
+function Battle.newActEncounter(id: string, setup: ActSetup, random: () -> number, clock: () -> number): State
+	local player = newActor(PLAYER, "You", setup.level, 1)
+	player.physical += setup.physicalBonus
+	player.view.power = math.max(player.physical, player.special)
+	player.focus = setup.focus
+	player.view.precisionPercent = Math.focusPrecision(player.focus)
+	local opponent = setup.opponent
+	local enemy = actEnemy(opponent, setup.level)
+	local state: State = {
+		id = id, level = setup.level, act = 1, stage = "Neutral", mode = "Manual", revision = 1, round = 1,
+		enemyId = opponent.id, actOpponent = opponent, actors = { [PLAYER] = player, [opponent.id] = enemy },
+		roster = { PLAYER, opponent.id }, tieOrder = { [PLAYER] = 1, [opponent.id] = 2 },
+		queue = {}, queueIndex = 0, outcome = "InProgress", log = {}, exposed = false,
+		random = random, clock = clock, charges = Limits.PartyBeltCharges, heals = Limits.DirectHealsPerFight,
+		medKit = false, stock = table.clone(setup.stock), tactic = "Aggressive", redirects = 0, assistUsed = false,
+	}
+	if setup.companion then
+		local companion = newActor(COMPANION, setup.companion.label, setup.level, 1)
+		companion.view.spriteKey = setup.companion.spriteKey
+		state.actors[COMPANION] = companion
+		table.insert(state.roster, 2, COMPANION)
+		state.tieOrder[COMPANION] = 3
+	end
+	startRound(state)
+	nextTurn(state)
+	return state
+end
+
+function Battle.startNextWave(state: State, opponent: ActOpponent, waveIndex: number)
+	assert(state.outcome == "Victory" and state.actOpponent ~= nil and state.qte == nil)
+	local previousEnemy = state.enemyId
+	state.actors[previousEnemy] = nil
+	state.enemyId = opponent.id
+	state.actOpponent = opponent
+	state.actors[opponent.id] = actEnemy(opponent, state.level)
+	state.roster[#state.roster] = opponent.id
+	state.tieOrder[previousEnemy] = nil
+	state.tieOrder[opponent.id] = 2
+	state.round += 1
+	state.waveStartsOn = state.round
+	state.outcome = "InProgress"
+	state.exposed = false
+	note(state, "Action", string.format("Wave %d: %s enters.", waveIndex, opponent.label), opponent.id)
+	startRound(state)
+	nextTurn(state)
 end
 
 local function reject(state: State, code: Remote.SandboxErrorCode, message: string): Remote.SandboxResponse
@@ -800,7 +941,7 @@ function Battle.submitSecondary(state: State, request: Remote.SandboxSecondaryRe
 
 	if request.kind == "UseBeltItem" then
 		for _, item in Encounter.Items do
-			if item.id ~= request.itemId then continue end
+		if item.id ~= request.itemId or state.stock[item.id] == nil then continue end
 			for _, preview in itemTargets(state, item, actor) do
 				if preview.targetId ~= request.targetId then continue end
 				if not preview.legality.canUse then return illegal(preview.legality.disabledReason) end
@@ -813,7 +954,8 @@ function Battle.submitSecondary(state: State, request: Remote.SandboxSecondaryRe
 		return illegal("This belt item is unavailable in the sandbox.")
 	end
 	if request.kind == "SetCompanionTactic" then
-		if state.actors[COMPANION].view.hp == 0 then return illegal("Companion is defeated.") end
+		local companion = state.actors[COMPANION]
+		if not companion or companion.view.hp == 0 then return illegal("No living companion.") end
 		if state.tactic == request.tacticMode then return illegal("This tactic is already selected.") end
 		state.tactic = request.tacticMode
 		note(state, "Action", "Companion tactic: " .. request.tacticMode .. ".", COMPANION)
@@ -843,6 +985,29 @@ function Battle.setQteMode(state: State, request: Remote.SandboxQteModeRequest):
 	if state.qte then return reject(state, "QtePending", "Finish the active QTE first.") end
 	state.mode = request.qteMode
 	return commit(state)
+end
+
+function Battle.retreatLegality(state: State): Combat.ActionLegality
+	return secondaryLegality(state, state.actors[PLAYER])
+end
+
+function Battle.attemptFlagRetreat(state: State, request: Remote.SandboxBattleRevision, actorId: string): (Remote.SandboxResponse, boolean)
+	local stale = checkRevision(state, request)
+	if stale then return stale, false end
+	local legality = Battle.retreatLegality(state)
+	if not legality.canUse then return reject(state, if state.qte then "QtePending" else "IllegalAction", legality.disabledReason), false end
+	if actorId ~= PLAYER then return reject(state, "IllegalAction", "Only the player can retreat."), false end
+	local player = state.actors[PLAYER].view
+	local enemy = state.actors[state.enemyId].view
+	player.secondaryAvailable = false
+	local escaped = chance(state, Math.flagFleePercent(player.speed, enemy.speed))
+	if escaped then
+		player.primaryAvailable = false
+		state.active = nil
+		state.intent = nil
+	end
+	note(state, if escaped then "Outcome" else "Action", if escaped then "You retreat." else "You couldn't get away.", PLAYER)
+	return commit(state), escaped
 end
 
 local function checkResult(state: State, challenge: Challenge, hit: boolean)
