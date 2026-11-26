@@ -92,10 +92,12 @@ local function new(
 	local function transact(
 		userId: number, id: string, operation: "Acquire" | "Renew" | "Write" | "Release",
 		profile: Profile.Profile?, expectedWriteRevision: number?
-	): (Record?, Remote.CampaignErrorCode)
+	): (Record?, Remote.CampaignErrorCode, Record?)
 		local rejection: Remote.CampaignErrorCode = "SaveUnavailable"
+		local newerRecord: Record? = nil
 		local committed, available = store.update(userId, function(value)
 			rejection = "SaveUnavailable"
+			newerRecord = nil
 			local record = decode(value)
 			if not record then return nil end
 			local now = clock()
@@ -112,6 +114,7 @@ local function new(
 			end
 			if operation == "Write" and record.writeRevision ~= expectedWriteRevision then
 				rejection = "StaleRevision"
+				newerRecord = record
 				return nil
 			end
 
@@ -119,13 +122,28 @@ local function new(
 			raw.version = record.tutorial.version
 			raw.tutorialCompleted = record.tutorial.tutorialCompleted
 			raw.origin = record.tutorial.origin
-			raw.campaign = profile or record.profile
+			if profile then
+				-- Patch only campaign-owned fields on the current row, including its shared wallet.
+				local current = raw.campaign
+				local campaign: { [string]: unknown } =
+					if type(current) == "table" then table.clone(current :: { [string]: unknown }) else {}
+				campaign.version = profile.version
+				campaign.appearance = profile.appearance
+				campaign.yen = profile.yen
+				campaign.stock = profile.stock
+				campaign.gear = profile.gear
+				campaign.belt = profile.belt
+				campaign.actOne = profile.actOne
+				raw.campaign = campaign
+			elseif raw.campaign == nil then
+				raw.campaign = record.profile
+			end
 			raw.campaignWriteRevision = if operation == "Write" then record.writeRevision + 1 else record.writeRevision
 			raw.campaignLease = if operation == "Release" then nil else { sessionId = id, expiresAt = now + LEASE_SECONDS }
 			return raw
 		end)
-		if not available then return nil, "SaveUnavailable" end
-		return if committed then decode(committed) else nil, rejection
+		if not available then return nil, "SaveUnavailable", nil end
+		return if committed then decode(committed) else nil, rejection, newerRecord
 	end
 
 	local function replaceRecord(state: State, record: Record)
@@ -163,8 +181,9 @@ local function new(
 					profile.stock[entryId] = math.max(0, (profile.stock[entryId] or 0) - spent)
 				end
 			end
-			local record = transact(userId, state.sessionId, "Write", profile, state.record.writeRevision)
+			local record, _, newerRecord = transact(userId, state.sessionId, "Write", profile, state.record.writeRevision)
 			if not record then
+				if newerRecord then replaceRecord(state, newerRecord) end
 				state.settleAfter = battleNow() + 2
 				return nil
 			end
@@ -292,7 +311,7 @@ local function new(
 			if not profile then return reject(code or "IllegalAction", message or "Action is unavailable.", state) end
 			updated = profile
 		end
-		local current, failure = transact(userId, state.sessionId, "Write", updated, state.record.writeRevision)
+		local current, failure, newerRecord = transact(userId, state.sessionId, "Write", updated, state.record.writeRevision)
 		if not current then
 			if request.kind == "StartNode" and failure ~= "SaveUnavailable" and failure ~= "StaleRevision" then state.fight = nil end
 			if failure == "ProfileLocked" then
@@ -300,9 +319,11 @@ local function new(
 				return reject(failure, "This session no longer owns the profile.", nil)
 			end
 			if failure == "StaleRevision" then
-				local refreshed = get(userId)
-				if refreshed.ok then return reject(failure, "Saved state changed. Try again.", sessions[userId]) end
-				return refreshed
+				-- The atomic transform saw the newer wallet. Avoid a cached GetAsync here.
+				replaceRecord(state, assert(newerRecord))
+				if request.kind == "StartNode" and not currentFight(state) then state.fight = nil end
+				settle(userId, state, true)
+				return reject(failure, "Saved state changed. Try again.", state)
 			end
 			return reject(failure, "Could not save the change. Try again.", state)
 		end

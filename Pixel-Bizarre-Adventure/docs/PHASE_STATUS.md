@@ -1,6 +1,6 @@
 # Phase status
 
-**Active phase** — Phase 3 merged and isolated persistence verified. Stage 4.1 shared contracts are ready for review.
+**Active phase** — Stage 4.1 contracts and Stage 4.2 server implementation are complete. Phase 4 client integration is next.
 
 **Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement.
 
@@ -163,3 +163,14 @@ The contract draft is on `codex/pba-phase4-contracts` from `main` at `9182c73`. 
 - [ ] **Remote lifecycle.** Confirm `Phase4Remotes` snapshot and action shapes, stale revision recovery, retry handling, and station availability before implementing server bindings.
 
 **Verification** — Rojo build, strict analysis of shared modules and tests, and `tests/phase4_contracts.luau` passed on the contracts branch. Strict analysis of the economy modules and `tests/phase4_economy.luau` passed on the rebased economy branch.
+
+### Stage 4.2 complete and Phase 4 client handoff for Claude
+
+`TutorialBootstrap` binds `ReplicatedStorage.Shared.Phase4Remotes` through the same SaveService store as Campaign. The two services renew and release their own session leases. Both use the same Yen balance. An action based on a superseded wallet or revision gets a fresh snapshot with `StaleRevision` so the client can show the new price or balance and let the player retry.
+
+- **Hub entry and refresh.** Invoke `GetPhase4Snapshot({})` on opening a station. Render the server's item, install and spin previews. For `SubmitPhase4Action`, send the latest Phase 4 `sessionId` and `expectedRevision`, a unique `requestId`, and the action selection. After an uncertain response, retry the same action with the same request ID. After a definitive stale response, refresh from its snapshot before a new attempt. Refresh the Campaign view when leaving a station so the Hub shows the current Yen.
+- **Blacksmith.** Use the gear UUID and render the persisted replacement offer when the snapshot contains one. Send `ResolveOffer` with its offer ID and the player's choice. Show the committed temper level and pity count even on a failed temper, and use the returned purification and dismantle receipts.
+- **Clinic.** Show the Act 2 lock, site offers and the tolerance/strain panel. Send the selected site and tier for installation, the site for removal, or the full selection for `SetEquippedRoutines`. Render the updated list after a replacement or removal.
+- **D'Arby's Parlor.** Show the price and odds for the selected chip and the current pity counter. Offer one or ten spins. Present batch results in receipt order and show duplicate refunds. The binding uses stable starter prize IDs and the Act reward tables for crafting bundles. Cosmetic presentation and the player-facing display of Phase 4 prize inventory belong to client/content integration.
+
+**Verification** — Rojo build, strict Luau analysis of shared code and tests, and all nine Lune suites passed. The shared-store regression interleaves Campaign purchases and loadout writes with Phase 4 spending, verifies stale recovery against a cached Campaign read, then renews and closes the two leases independently.
