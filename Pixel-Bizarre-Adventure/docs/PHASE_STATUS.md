@@ -1,8 +1,8 @@
 # Phase status
 
-**Active phase** — Phase 3 merged; isolated persistence gate open. Phase 4 Core review requires fixes before contract integration.
+**Active phase** — Phase 3 merged and isolated persistence verified. Phase 4 Core review requires fixes before contract integration.
 
-**Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement. The real Roblox DataStore restart check remains open as a separate follow-up.
+**Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement.
 
 | Ticket | Scope | Status |
 | --- | --- | --- |
@@ -139,7 +139,12 @@ PASS: all six suites with Lune 0.11.1 — smoke, tutorial, phase2_contracts, pha
 
 ### Isolated DataStore restart
 
-OPEN: no real restart result is claimed. The connected cloud place was the shared PBA place (91723653990702), not an isolated persistence-test place. A combined local build is prepared. The test requires an isolated published place with Studio API access enabled, then two server sessions verifying appearance/color, Origin, Yen, inventory/loadout, clears and recruited companion. Prior in-memory Studio checks do not close this gate. No shared Team Create sync or publish was performed in this merge task.
+**PASS — 2026-11-26.** `Fixture.luau` ran against `SaveService.new(true).campaign` and the real Roblox DataStore `PBA_TutorialProfiles_Studio_v1` in **PBA Persistence Test 2026-11-25** (place `130600351609363`, universe `10779083886`). Studio stopped the write server and started a fresh read server. The write server marker `394b6608-60aa-4f4d-a2a8-def3fc2f7d05` was absent in the new server, which returned marker `f36218c9-7719-439b-b253-095e2a8ba3df`.
+
+- **Hamon / Speedwagon — PASS** (`player:-17956705526701`).
+- **Stand / Avdol — PASS** (`player:-17956705526702`).
+
+Both profiles matched the full saved record and the reconstructed character, companion, and inventory views after restart. Each retained Deep skin, cap hair, `#F2C94C`, the selected Origin, level 4, 100 Yen, F1/F2/D1 clears, Training Wraps in the weapon slot, three Mineral Waters with the stack in belt slot 1, one Med-Kit, and the recruited companion. The fixture seeded tutorial completion and Origin before playing the campaign.
 
 ### Phase 4 economy review
 
