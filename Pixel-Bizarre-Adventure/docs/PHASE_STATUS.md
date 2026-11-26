@@ -1,6 +1,6 @@
 # Phase status
 
-**Active phase** — Phase 5 backend (Stages 5A–5D) is complete. Progression integration and Phase 4 and Phase 5 client work remain open.
+**Active phase** — Stage 6.1A shared activity contracts are complete. Phase 5 backend (Stages 5A–5D) is complete. Progression integration and Phase 4 and Phase 5 client work remain open.
 
 **Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement.
 
@@ -216,3 +216,11 @@ Alternate targeting unlocks at two marks and uses `SetMasteryTargetMode`. The in
 The suite uses fixed headless encounter inputs with shared combat math and catalog-defined Castle phases and move multipliers. Live progression and Studio playtesting remain separate work.
 
 **Verification** — Rojo build, strict Luau analysis of shared code and tests, and all 13 Lune suites passed.
+
+## Stage 6.1A activity contracts
+
+- **Post-Act Auto-Battle.** The view lists manually cleared Acts and their per-tick reward previews. Active runs expose server UTC start and paid-through timestamps, pending ticks, and the latest claim for rejoin. The contract specifies 300-second server auto-claims and limits rewards to Yen, Salvage Shards, crafting materials, and standard gear.
+- **Ticket Expeditions.** The view exposes one four-hour mission slot, a server UTC completion time, claim eligibility, and a crafting bundle capped at 25% of same-Act clear value. The ticket cap is two, or three with Quartermaster Dispatch. Expeditions add no age. Neither activity grants XP, Mastery Marks, or Echoes.
+- **Activity remotes.** `ActivityRemotes` declares `GetActivitySnapshot` and `SubmitActivityAction`. All five actions include a request ID and expected revision. Auto-Battle claims and stops target a run ID, and an Expedition claim targets a single mission ID. Runtime settlement, DataStore persistence, and remote bindings are pending.
+
+**Verification** — Rojo build, strict Luau analysis of shared code and tests, and `tests/phase6_contracts.luau` passed.
