@@ -1,8 +1,10 @@
 {
-  "name": "Golden Sun - Rojo Connection Test",
+  "name": "Golden Sun Arcade",
   "serveAddress": "127.0.0.1",
   "servePort": 34872,
-  "servePlaceIds": [78369564991843],
+  "servePlaceIds": [
+    78369564991843
+  ],
   "tree": {
     "$className": "DataModel",
     "$ignoreUnknownInstances": true,
@@ -14,6 +16,24 @@
         "$ignoreUnknownInstances": true,
         "ConnectionTest": {
           "$path": "src/server/ConnectionTest.server.luau"
+        }
+      }
+    },
+    "ReplicatedStorage": {
+      "$ignoreUnknownInstances": true,
+      "$className": "ReplicatedStorage",
+      "GoldenSunArcade": {
+        "$path": "src/shared/arcade"
+      }
+    },
+    "StarterPlayer": {
+      "$ignoreUnknownInstances": true,
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$ignoreUnknownInstances": true,
+        "$className": "StarterPlayerScripts",
+        "GoldenSunArcade": {
+          "$path": "src/client/arcade"
         }
       }
     }
