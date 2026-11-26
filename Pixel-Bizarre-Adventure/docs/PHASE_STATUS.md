@@ -1,6 +1,6 @@
 # Phase status
 
-**Active phase** — Stage 5A shared succession contracts are complete. Phase 4 client integration remains open.
+**Active phase** — Stage 5A, 5B, and 5C Lineage and Succession backend work is complete. Phase 4 and Phase 5 client integration remain open.
 
 **Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement.
 
@@ -181,6 +181,20 @@ The contract draft is on `codex/pba-phase4-contracts` from `main` at `9182c73`. 
 
 Alternate targeting unlocks at two marks and uses `SetMasteryTargetMode`. The independent utility variant unlocks at five marks and uses `SetMasteryVariant`. The mastery title unlocks at eight marks.
 
-`RemoteContract.Lineage` declares `GetLineageSnapshot` and `SubmitLineageAction`. Actions carry a session ID, expected revision, and request ID. Use the same request ID and action after an uncertain reply. The next implementation stage owns settlement and remote binding.
+`RemoteContract.Lineage` declares `GetLineageSnapshot` and `SubmitLineageAction`. Actions carry a session ID, expected revision, and request ID. Use the same request ID and action after an uncertain reply.
 
 **Verification** — Rojo build, strict Luau analysis of shared modules and tests, and `tests/phase5_contracts.luau` passed.
+
+### Stage 5B session and Stage 5C binding complete
+
+`SuccessionSession` implements the six lineage actions and the trusted progression and settlement hooks. `SuccessionService` exposes both lineage remotes from `TutorialBootstrap` on the shared SaveService store. The lineage lease renews and closes independently of the Campaign and Phase 4 leases. Safe Hub checks use the live Campaign scene, and lineage mutations serialize with Campaign navigation and combat requests.
+
+### Phase 5 client handoff for Claude
+
+- Open the Campaign session first. At the Safe Hub, call `ReplicatedStorage.Shared.LineageRemotes.GetLineageSnapshot({})` to open the lineage panel. Render age, recovery count, Echo quotes, and the three branches from the current snapshot. Gate voluntary retirement and heirloom edits using the supplied eligibility.
+- Submit `{ sessionId, expectedRevision, requestId, action }` through `SubmitLineageAction`. When a reply is uncertain, refresh or reconnect as needed and retry the same action with the same request ID. On a definitive stale response, use the supplied snapshot before making a new request.
+- For Pass the Torch, confirm against the displayed `lifeId` and render the committed payout from the receipt. Replace lineage UI state with the returned heir snapshot. Campaign progression and character reset integration are separate from this remote binding.
+- Use the heirloom catalog for presentation. Carry only the advertised number and show at most one attuned heirloom. Keep mastery targeting at two marks separate from the utility variant at five marks and the title at eight marks.
+- The ledger exposes the final-attempt flag, terminal payout, and settled state. Castle entry confirmation and the campaign calls that record wipes, aging, clears, endgame challenges, mastery, and heirloom unlocks remain progression integration work. The two lineage remotes accept player actions only.
+
+**Verification** — Rojo build, strict Luau analysis of shared code and tests, server compilation, and all 11 Lune suites passed. The succession regression uses the real Campaign Safe Hub query and verifies that heirloom editing is blocked on the Act Map and available after returning to the Hub.

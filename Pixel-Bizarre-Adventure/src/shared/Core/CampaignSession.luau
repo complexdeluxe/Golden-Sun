@@ -387,8 +387,16 @@ local function new(
 		transact(userId, state.sessionId, "Release")
 	end
 
+	local function isSafeHub(userId: number): boolean
+		local state = sessions[userId]
+		local lease = if state then state.record.lease else nil
+		return state ~= nil and lease ~= nil and lease.expiresAt > clock()
+			and state.destination == "Hub" and scene(state).kind == "Hub"
+	end
+
 	return table.freeze({
 		get = get, submit = submit, renew = renew, close = close,
+		isSafeHub = isSafeHub,
 		battle = battle, nextCheck = nextCheck, expireChecks = expireChecks,
 	})
 end
