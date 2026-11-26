@@ -209,10 +209,10 @@ local function bind(store: Session.Store)
 		while next(inFlight) and os.clock() < deadline do task.wait() end
 	end)
 
-	local function withLineageAction(userId: number, handler: () -> Remote.LineageActionResponse): Remote.LineageActionResponse
-		-- Keep navigation and combat transitions idle through a Hub-checked lineage write.
+	local function withHubAction<T>(userId: number, handler: () -> T, busy: T): T
+		-- Keep navigation and combat transitions idle through a Hub-checked write.
 		if shuttingDown or inFlight[userId] then
-			return { ok = false, code = "SaveUnavailable", message = "Wait for the current campaign request." }
+			return busy
 		end
 		inFlight[userId] = true
 		local ok, result = pcall(handler)
@@ -221,7 +221,11 @@ local function bind(store: Session.Store)
 		return result
 	end
 
-	return table.freeze({ isSafeHub = session.isSafeHub, withLineageAction = withLineageAction })
+	local function withLineageAction(userId: number, handler: () -> Remote.LineageActionResponse): Remote.LineageActionResponse
+		return withHubAction(userId, handler, { ok = false, code = "SaveUnavailable", message = "Wait for the current campaign request." })
+	end
+
+	return table.freeze({ isSafeHub = session.isSafeHub, withLineageAction = withLineageAction, withHubAction = withHubAction })
 end
 
 return table.freeze({ bind = bind })

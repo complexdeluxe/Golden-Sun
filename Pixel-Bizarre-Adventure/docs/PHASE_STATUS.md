@@ -1,6 +1,6 @@
 # Phase status
 
-**Active phase** — Stage 6.1A shared activity contracts are complete. Phase 5 backend (Stages 5A–5D) is complete. Progression integration and Phase 4 and Phase 5 client work remain open.
+**Phases 0–6.1 v1.0 Backend 100% Complete.** Phase 6 client work and the closed playtest are next. The live campaign still needs full-Act progression hooks and ticket awards as later encounters are integrated.
 
 **Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement.
 
@@ -221,6 +221,22 @@ The suite uses fixed headless encounter inputs with shared combat math and catal
 
 - **Post-Act Auto-Battle.** The view lists manually cleared Acts and their per-tick reward previews. Active runs expose server UTC start and paid-through timestamps, pending ticks, and the latest claim for rejoin. The contract specifies 300-second server auto-claims and limits rewards to Yen, Salvage Shards, crafting materials, and standard gear.
 - **Ticket Expeditions.** The view exposes one four-hour mission slot, a server UTC completion time, claim eligibility, and a crafting bundle capped at 25% of same-Act clear value. The ticket cap is two, or three with Quartermaster Dispatch. Expeditions add no age. Neither activity grants XP, Mastery Marks, or Echoes.
-- **Activity remotes.** `ActivityRemotes` declares `GetActivitySnapshot` and `SubmitActivityAction`. All five actions include a request ID and expected revision. Auto-Battle claims and stops target a run ID, and an Expedition claim targets a single mission ID. Runtime settlement, DataStore persistence, and remote bindings are pending.
+- **Activity remotes.** `ActivityRemotes` declares `GetActivitySnapshot` and `SubmitActivityAction`. All five actions include a request ID and expected revision. Auto-Battle claims and stops target a run ID, and an Expedition claim targets a single mission ID.
 
 **Verification** — Rojo build, strict Luau analysis of shared code and tests, and `tests/phase6_contracts.luau` passed.
+
+## Stage 6.1B session and Stage 6.1C server binding
+
+`ActivitySession` settles Auto-Battle ticks and four-hour Expeditions through the shared SaveService store. The independent activity lease preserves Campaign, Phase 4, and Lineage sessions. Auto-Battle payouts advance the persisted paid-through timestamp in the same write as the shared balances. Expedition claims mark the mission paid in the same write as its bundle.
+
+`ActivityService` starts in `TutorialBootstrap` and opens Activity sessions on join so active runs resume before the panel opens. It renews leases on a 30-second heartbeat, settles active runs when their five-minute UTC boundary is due, and releases activity leases on player removal and shutdown. Starting Auto-Battle shares Campaign's Safe Hub action lock.
+
+**Verification** — Rojo build, strict Luau analysis of shared code and tests, server bytecode compilation, and all 15 Lune suites passed. A mocked server check also exercised the scheduler's renewal, due-time settlement, lost Start reply recovery, removal, and rejoin paths.
+
+### Phase 6 client handoff for Claude
+
+- Open the Campaign session for Safe Hub context, then call `ReplicatedStorage.Shared.ActivityRemotes.GetActivitySnapshot({})`. Use the listed manually cleared Acts and per-action legality to render the Auto-Battle panel and Expedition Board.
+- Use `serverTimeUtc` to anchor countdowns. The Auto-Battle boundary comes from `lastClaimedAtUtc + tickSeconds`. Refresh the snapshot at the boundary and on panel open or rejoin. Use `lastClaim` for the claim feed and the paid-through timestamp to avoid repeating an entry. Automatic settlement runs on the server.
+- Render the Expedition ticket cap, active mission, `completesAtUtc`, reward preview, and `claimable` state from the snapshot. Countdown completion can trigger a refresh. Dispatch and claim each require an explicit player action.
+- Send `{ sessionId, expectedRevision, requestId, action }` to `SubmitActivityAction`. Target the current `runId` for Auto-Battle claim or stop and the current `missionId` for Expedition claim. After an uncertain reply, reconnect if needed and retry the same action with the same request ID. Refresh on a definitive stale revision before making a new action.
+- Use the Phase 6 client pass for the activity panels, claim feed, VFX and SFX polish, and PC and mobile layout. The current campaign does not yet emit full-Act clears or Expedition Ticket awards. Those progression events are needed for end-to-end unlock and ticket acquisition playtests.

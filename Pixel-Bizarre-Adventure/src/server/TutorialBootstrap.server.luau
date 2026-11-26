@@ -1,5 +1,6 @@
 --!strict
 
+local ActivityService = require("./ActivityService")
 local BattleService = require("./BattleService")
 local CampaignService = require("./CampaignService")
 local Phase4Service = require("./Phase4Service")
@@ -14,3 +15,4 @@ BattleService.bind(saves.tutorial)
 local campaignAccess = CampaignService.bind(saves.campaign)
 Phase4Service.bind(saves.campaign)
 SuccessionService.bind(saves.campaign, campaignAccess)
+ActivityService.bind(saves.campaign, campaignAccess)
