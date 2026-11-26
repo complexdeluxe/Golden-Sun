@@ -1,6 +1,6 @@
 # Phase status
 
-**Active phase** — Phase 3 merged and isolated persistence verified. Phase 4 Core review requires fixes before contract integration.
+**Active phase** — Phase 3 merged and isolated persistence verified. Stage 4.1 shared contracts are ready for review.
 
 **Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement.
 
@@ -148,4 +148,18 @@ Both profiles matched the full saved record and the reconstructed character, com
 
 ### Phase 4 economy review
 
-Reviewed local Antigravity branch `antigravity/phase4-economy-core` at `7cb2c8b`. Its existing Lune suite passes, but strict analysis fails and deterministic probes reproduce affix-budget overflow, zero-line T1 Legendary generation, and inconsistent FullBorg strain. Do not integrate into Phase 4 contracts yet. See [review and required fixes](PHASE4_ECONOMY_REVIEW.md).
+Reviewed local Antigravity branch `antigravity/phase4-economy-core` at `7cb2c8b`. Its existing Lune suite passed. Strict analysis failed, and deterministic probes reproduced affix-budget overflow, zero-line T1 Legendary generation, and inconsistent FullBorg strain. See the [original review](PHASE4_ECONOMY_REVIEW.md) and the follow-up below.
+
+### Stage 4.1 contract review checklist
+
+The contract draft is on `codex/pba-phase4-contracts` from `main` at `9182c73`. The reviewed calculator and fixes are on `codex/pba-phase4-economy-review-fixes` at `08ef2ae`, rebased onto the same main commit. That branch resolves the findings above, including the T3 unlock and the minimum-cost check for percentage affixes. The shared contract draft uses its own wire and save shapes and has no calculator dependency.
+
+- [ ] **UUID gear and migration.** Confirm a UUID is also the inventory entry ID for a gear copy. Review the mapping from starter gear and calculator point totals to fixed stat lines, the empty package for plain gear, and persistence of tier, temper level, pity and curse state. Review runtime validation of the numeric bounds and UUIDs.
+- [ ] **Blacksmith.** Confirm `CreateOffer` persists payment and replacement lines together before reveal. A reconnect snapshot must return the same offer ID and package. `ResolveOffer` matches both the UUID and offer ID and accepts the package or keeps the old one. Review request ID replay and conflicting requests, including the trade lock while an offer is pending.
+- [ ] **Tempering and purification.** Confirm failed tempering returns a committed receipt with the unchanged level and new pity count. Review the +10 cap, currency settlement, removal of both curse effects, and the unique Measured Breath loadout rule.
+- [ ] **Item details and dismantling.** Confirm display data and effective base stats are available with the original item record. Review the displayed shard quote and legality, and commit item removal and the shard grant together.
+- [ ] **Cyberware Clinic.** Verify the five site IDs, install quotes and tolerance costs, one implant per site, racial tolerance and strain preview, and the distinction between installed routines and equipped routines. Review installation, removal, and replacement of the equipped routine list.
+- [ ] **D'Arby's Hub Parlor.** Review normal and pity odds by chip tier, one and ten spin requests, the order of results and pity updates in a batch, and duplicate cosmetic shard refunds. Confirm prices, outcomes and request receipts are settled before reveal.
+- [ ] **Remote lifecycle.** Confirm `Phase4Remotes` snapshot and action shapes, stale revision recovery, retry handling, and station availability before implementing server bindings.
+
+**Verification** — Rojo build, strict analysis of shared modules and tests, and `tests/phase4_contracts.luau` passed on the contracts branch. Strict analysis of the economy modules and `tests/phase4_economy.luau` passed on the rebased economy branch.

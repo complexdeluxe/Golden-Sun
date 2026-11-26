@@ -6,6 +6,7 @@ local Appearance = require("./CharacterAppearanceTypes")
 local Hub = require("./HubTypes")
 local Inventory = require("./InventoryTypes")
 local Map = require("./MapTypes")
+local Phase4 = require("./Phase4EconomyTypes")
 
 export type StartTutorialRequest = {}
 export type SubmitPrimaryActionRequest = CombatTypes.ActionRequest
@@ -134,6 +135,11 @@ export type ActBattleResponse =
 
 export type ActBattleSnapshotChanged = Map.ActBattleSnapshot
 
+export type GetPhase4SnapshotRequest = {}
+export type Phase4SnapshotResponse = Phase4.SnapshotResponse
+export type Phase4ActionRequest = Phase4.ActionRequest
+export type Phase4ActionResponse = Phase4.ActionResponse
+
 local function remoteEvent(name: string): { read name: string, read className: "RemoteEvent" }
 	return table.freeze({ name = name, className = "RemoteEvent" :: "RemoteEvent" })
 end
@@ -168,5 +174,10 @@ return table.freeze({
 		SubmitActBattleQteCheck = remoteFunction("SubmitActBattleQteCheck"),
 		SetActBattleQteMode = remoteFunction("SetActBattleQteMode"),
 		ActBattleSnapshotChanged = remoteEvent("ActBattleSnapshotChanged"),
+	}),
+	Phase4 = table.freeze({
+		FolderName = "Phase4Remotes",
+		GetPhase4Snapshot = remoteFunction("GetPhase4Snapshot"),
+		SubmitPhase4Action = remoteFunction("SubmitPhase4Action"),
 	}),
 })
