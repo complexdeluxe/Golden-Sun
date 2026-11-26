@@ -1,6 +1,6 @@
 # Phase status
 
-**Active phase** — Stage 5D-1 launch catalogs are complete. Progression integration and Phase 4 and Phase 5 client work remain open.
+**Active phase** — Phase 5 backend (Stages 5A–5D) is complete. Progression integration and Phase 4 and Phase 5 client work remain open.
 
 **Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement.
 
@@ -206,3 +206,13 @@ Alternate targeting unlocks at two marks and uses `SetMasteryTargetMode`. The in
 - **Builds.** `BuildCatalogData` records the 9×5 launch compatibility matrix and 45 Stand records from the Vault JSON, including all Arrow Core and Disc entries. The isolated grade table keeps ∞ at the A+ numeric ceiling with at most one authored behavior per axis. Hub evolution entries require explicit confirmation. The Cyborg offer uses the lower edge of the documented 30–35 tolerance band with two installed sites and the Act 2 Clinic unlock. Evolution offers with unspecified unlock conditions require authored progression data.
 
 **Verification** — Rojo build, strict Luau analysis of shared code and tests, and all 12 Lune suites passed. The catalog integrity test checks route and node counts, the live opener parity, asset references, Boss Set budgets and trigger bounds, acquisition coverage, Stand grade ceilings, and opt-in evolution flags.
+
+## Stage 5D-2 headless balance parity
+
+- All five archetypes cleared the deterministic Castle fixtures in Acts 1–5 on both origin routes. The median was seven turns in each case. The largest individual deviation was 14.29% against a 15% limit.
+- Fifty overloaded loadout cases used T5 +10 gear with three rolled lines per item, the route Castle's Boss Set, and the A+ Stand Grade ceiling for Stand actions. They held the 35% source damage, 75% pre-penetration mitigation, 50% effective Dodge, and 25 Resolve per turn caps. The suite also exercises the existing Phase 2 sandbox's Resolve grant through a landed Basic Strike.
+- The first-life Human Boxer cleared the Act 5 Castle at age 59 in seven turns with 172 HP left after guarding both telegraphs. Veteran Composure and the isolated Ageless comparison also cleared in seven turns, with 184 and 197 HP left respectively.
+
+The suite uses fixed headless encounter inputs with shared combat math and catalog-defined Castle phases and move multipliers. Live progression and Studio playtesting remain separate work.
+
+**Verification** — Rojo build, strict Luau analysis of shared code and tests, and all 13 Lune suites passed.
