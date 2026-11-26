@@ -1,6 +1,6 @@
 # Phase status
 
-**Active phase** — Stage 5A, 5B, and 5C Lineage and Succession backend work is complete. Phase 4 and Phase 5 client integration remain open.
+**Active phase** — Stage 5D-1 launch catalogs are complete. Progression integration and Phase 4 and Phase 5 client work remain open.
 
 **Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement.
 
@@ -198,3 +198,11 @@ Alternate targeting unlocks at two marks and uses `SetMasteryTargetMode`. The in
 - The ledger exposes the final-attempt flag, terminal payout, and settled state. Castle entry confirmation and the campaign calls that record wipes, aging, clears, endgame challenges, mastery, and heirloom unlocks remain progression integration work. The two lineage remotes accept player actions only.
 
 **Verification** — Rojo build, strict Luau analysis of shared code and tests, server compilation, and all 11 Lune suites passed. The succession regression uses the real Campaign Safe Hub query and verifies that heirloom editing is blocked on the Act Map and available after returning to the Hub.
+
+## Stage 5D-1 launch catalogs
+
+- **Campaign.** `CampaignPartsData` records Option 1. Hamon follows Parts 1, 2, 3, 4, 5. Stand follows Parts 3, 1, 2, 4, 5, with Parts 1 and 2 marked as Bloodline Flashbacks. Act tier stays independent of Story Part. The five Parts contain 55 story nodes and 30 Dungeon approach options. Each Castle has two phases, and both live Act 1 openers retain their names, stage keys, tags, and default waves. Some stage keys still point to placeholder art.
+- **Boss sets.** The five sets specify Head and Body pieces, the two-clear drop guarantee, and audited full-set triggers. The authored Crimson Emperor Crit bonuses at T1 and T4 cost 1.5 and 4.5 points under the Vault exchange table. The catalog retains those authored quotes separately and caps `onePieceAmountByAct` to the half-slot allowance.
+- **Builds.** `BuildCatalogData` records the 9×5 launch compatibility matrix and 45 Stand records from the Vault JSON, including all Arrow Core and Disc entries. The isolated grade table keeps ∞ at the A+ numeric ceiling with at most one authored behavior per axis. Hub evolution entries require explicit confirmation. The Cyborg offer uses the lower edge of the documented 30–35 tolerance band with two installed sites and the Act 2 Clinic unlock. Evolution offers with unspecified unlock conditions require authored progression data.
+
+**Verification** — Rojo build, strict Luau analysis of shared code and tests, and all 12 Lune suites passed. The catalog integrity test checks route and node counts, the live opener parity, asset references, Boss Set budgets and trigger bounds, acquisition coverage, Stand grade ceilings, and opt-in evolution flags.
