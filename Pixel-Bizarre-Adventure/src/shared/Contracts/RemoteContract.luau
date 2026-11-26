@@ -7,6 +7,7 @@ local Hub = require("./HubTypes")
 local Inventory = require("./InventoryTypes")
 local Map = require("./MapTypes")
 local Phase4 = require("./Phase4EconomyTypes")
+local Succession = require("./SuccessionTypes")
 
 export type StartTutorialRequest = {}
 export type SubmitPrimaryActionRequest = CombatTypes.ActionRequest
@@ -140,6 +141,11 @@ export type Phase4SnapshotResponse = Phase4.SnapshotResponse
 export type Phase4ActionRequest = Phase4.ActionRequest
 export type Phase4ActionResponse = Phase4.ActionResponse
 
+export type GetLineageSnapshotRequest = {}
+export type LineageSnapshotResponse = Succession.SnapshotResponse
+export type LineageActionRequest = Succession.ActionRequest
+export type LineageActionResponse = Succession.ActionResponse
+
 local function remoteEvent(name: string): { read name: string, read className: "RemoteEvent" }
 	return table.freeze({ name = name, className = "RemoteEvent" :: "RemoteEvent" })
 end
@@ -179,5 +185,10 @@ return table.freeze({
 		FolderName = "Phase4Remotes",
 		GetPhase4Snapshot = remoteFunction("GetPhase4Snapshot"),
 		SubmitPhase4Action = remoteFunction("SubmitPhase4Action"),
+	}),
+	Lineage = table.freeze({
+		FolderName = "LineageRemotes",
+		GetLineageSnapshot = remoteFunction("GetLineageSnapshot"),
+		SubmitLineageAction = remoteFunction("SubmitLineageAction"),
 	}),
 })

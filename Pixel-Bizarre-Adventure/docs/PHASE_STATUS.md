@@ -1,6 +1,6 @@
 # Phase status
 
-**Active phase** — Stage 4.1 contracts and Stage 4.2 server implementation are complete. Phase 4 client integration is next.
+**Active phase** — Stage 5A shared succession contracts are complete. Phase 4 client integration remains open.
 
 **Base** — Phase 2 merged via PR #10 at `b3758d3`, including PR #12’s server-owned turn advancement.
 
@@ -174,3 +174,13 @@ The contract draft is on `codex/pba-phase4-contracts` from `main` at `9182c73`. 
 - **D'Arby's Parlor.** Show the price and odds for the selected chip and the current pity counter. Offer one or ten spins. Present batch results in receipt order and show duplicate refunds. The binding uses stable starter prize IDs and the Act reward tables for crafting bundles. Cosmetic presentation and the player-facing display of Phase 4 prize inventory belong to client/content integration.
 
 **Verification** — Rojo build, strict Luau analysis of shared code and tests, and all nine Lune suites passed. The shared-store regression interleaves Campaign purchases and loadout writes with Phase 4 spending, verifies stale recovery against a cached Campaign read, then renews and closes the two leases independently.
+
+## Stage 5A succession contracts
+
+`SuccessionTypes` defines the age and Castle recovery views, retirement and terminal Echo quotes, all 11 bloodline nodes across three branches, the heirloom catalog and loadout, and per-kit mastery. The catalog supplies labels, descriptions, and optional asset keys. Carrying two heirlooms still allows one active attunement, changed at the Safe Hub.
+
+Alternate targeting unlocks at two marks and uses `SetMasteryTargetMode`. The independent utility variant unlocks at five marks and uses `SetMasteryVariant`. The mastery title unlocks at eight marks.
+
+`RemoteContract.Lineage` declares `GetLineageSnapshot` and `SubmitLineageAction`. Actions carry a session ID, expected revision, and request ID. Use the same request ID and action after an uncertain reply. The next implementation stage owns settlement and remote binding.
+
+**Verification** — Rojo build, strict Luau analysis of shared modules and tests, and `tests/phase5_contracts.luau` passed.
