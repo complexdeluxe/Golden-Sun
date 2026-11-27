@@ -240,7 +240,11 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 		busy = false
 		local receipt = result.receipt
 		if result.ok and receipt then
-			local text = Format.receipt(receipt, label)
+			-- A reply that settled an earlier unconfirmed action describes that one.
+			local text = Format.receipt(receipt, if result.resolvedPending then nil else label)
+			if result.resolvedPending then
+				text = "EARLIER: " .. text
+			end
 			local failed = receipt.kind == "Tempered" and not receipt.succeeded
 			setStatus(text, if failed then Colors.Hp else Colors.Active)
 			deps.toast(text)
@@ -250,6 +254,9 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 			confirmDismantle = nil
 		else
 			local message = result.message or "The Blacksmith couldn't do that."
+			if result.resolvedPending then
+				message = "Last action not applied: " .. message
+			end
 			if result.code == "StaleRevision" then
 				message = "Balances changed. Press again to retry."
 			end
