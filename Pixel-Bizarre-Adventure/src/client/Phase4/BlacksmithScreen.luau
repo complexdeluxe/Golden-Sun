@@ -5,7 +5,8 @@
 -- rolled affixes, temper level and pity, and runs the four smith services:
 -- reroll offers (Accept/Keep), tempering to +10, Holy Water purification and
 -- dismantling. Every price, chance and legality is the server's; a disabled
--- button explains why when pressed.
+-- button explains why when pressed. Hovering a list row shows its rolled
+-- lines in a tooltip.
 --
 -- Layout (native px):
 --   top bar   0..14     title, shards / materials / Holy Water, Yen
@@ -19,6 +20,7 @@ local PixelUi = require(script.Parent.Parent.Battle.PixelUi)
 local CampaignUi = require(script.Parent.Parent.Campaign.CampaignUi)
 local Phase4Client = require(script.Parent.Phase4Client)
 local Format = require(script.Parent.BlacksmithFormat)
+local StationFormat = require(script.Parent.StationFormat)
 
 type Snapshot = Contract.Snapshot
 type ItemView = Contract.SmithItemView
@@ -141,6 +143,17 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 	local noticeLine = PixelUi.label(detail, "Notice2", 0, 61, DETAIL_W, 10, "", Colors.TextDim, Enum.TextXAlignment.Center)
 	local retry = CampaignUi.button(detail, "Retry", 76, 76, 60, 14, "RETRY")
 
+	-- Rolled-line tooltip for a hovered list row, drawn over the detail panel.
+	local TIP_W = 132
+	local tipOutline, tipFill = PixelUi.box(frame, "Tooltip", DETAIL_X - 2, 27, TIP_W, 12, Colors.PanelLight)
+	tipOutline.ZIndex = 6
+	tipOutline.Visible = false
+	local tipLines: { TextLabel } = {}
+	for i = 1, AFFIX_ROWS + 2 do
+		tipLines[i] = PixelUi.label(tipFill, `Line{i}`, 2, 1 + (i - 1) * 9, TIP_W - 6, 9, "", Colors.Text)
+	end
+	local hovered: number? = nil
+
 	local self = {} :: Blacksmith
 	local alive = true
 	local busy = false
@@ -241,7 +254,9 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 		local receipt = result.receipt
 		if result.ok and receipt then
 			-- A reply that settled an earlier unconfirmed action describes that one.
-			local text = Format.receipt(receipt, if result.resolvedPending then nil else label)
+			-- StationFormat also covers Clinic and Parlor receipts, which the shared
+			-- client can settle here.
+			local text = StationFormat.receipt(receipt, if result.resolvedPending then nil else label)
 			if result.resolvedPending then
 				text = "EARLIER: " .. text
 			end
@@ -416,6 +431,9 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 		if not alive then
 			return
 		end
+		-- Rows may now hold different items. The next hover redraws the tooltip.
+		hovered = nil
+		tipOutline.Visible = false
 		back.setState(if busy then "Disabled" else "Normal")
 		local snapshot = client:snapshot()
 		if snapshot then
@@ -484,6 +502,65 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 			render()
 		end)
 	end
+	-- Hover shows the row's rolled lines without selecting it. Touch players
+	-- see the same lines in the detail panel.
+	local function hideTip()
+		hovered = nil
+		tipOutline.Visible = false
+	end
+	local function showTip(index: number)
+		local snapshot = client:snapshot()
+		if not alive or not snapshot then
+			return
+		end
+		local view = ordered(snapshot)[(page - 1) * LIST_ROWS + index]
+		if not view or not rows[index].outline.Visible then
+			hideTip()
+			return
+		end
+		hovered = index
+		local item = view.item
+		local texts: { { text: string, color: Color3 } } = {
+			{ text = Format.name(view), color = Palette.Gold },
+		}
+		if #item.rolledLines == 0 then
+			table.insert(texts, { text = "PLAIN GEAR. NO ROLLED LINES.", color = Colors.TextDim })
+		end
+		for _, rolled in item.rolledLines do
+			table.insert(texts, { text = Format.affix(rolled), color = Colors.Text })
+		end
+		if item.pendingSmithOffer then
+			table.insert(texts, { text = "NEW ROLL WAITING", color = Colors.Active })
+		elseif item.cursed then
+			table.insert(texts, { text = "CURSED", color = Colors.Hp })
+		end
+		for i, label in tipLines do
+			local entry = texts[i]
+			label.Visible = entry ~= nil
+			if entry then
+				label.Text = entry.text
+				label.TextColor3 = entry.color
+			end
+		end
+		local count = math.min(#texts, #tipLines)
+		tipOutline.Size = UDim2.fromOffset(TIP_W, count * 9 + 4)
+		tipFill.Size = UDim2.fromOffset(TIP_W - 2, count * 9 + 2)
+		-- Beside the row, kept on screen.
+		local rowY = 27 + (index - 1) * ROW_HEIGHT
+		tipOutline.Position = UDim2.fromOffset(DETAIL_X - 2, math.min(rowY, 178 - (count * 9 + 4)))
+		tipOutline.Visible = true
+	end
+	for i, row in rows do
+		row.press.MouseEnter:Connect(function()
+			showTip(i)
+		end)
+		row.press.MouseLeave:Connect(function()
+			if hovered == i then
+				hideTip()
+			end
+		end)
+	end
+
 	prevPage.button.Activated:Connect(function()
 		page -= 1
 		render()
