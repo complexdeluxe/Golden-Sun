@@ -162,8 +162,7 @@ local INTENT_X, INTENT_Y, INTENT_W, INTENT_H = 82, 3, 156, 21
 -- 96 x 96 sprite's drawn pixels (feet on row 88) and above the dock (y 126).
 local CALLOUT_Y = FighterSprite.FEET_ROW + 1
 local CALLOUT_H = 7
-local CALLOUT_ROW_W = 52 -- the tightest slot spacing (3 foes), so rows never collide
-local MAX_CALLOUTS = 2
+local CALLOUT_GAP = 2 -- overlay px between chips and between neighbours' rows
 local QTE_CHOICES: { QteInput } = { "Left", "Center", "Right" }
 
 -- Manual ring, in native pixels. The approach ring shrinks from RING_START to
@@ -322,7 +321,6 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 
 	-- Arena corners -----------------------------------------------------------------
 	local stageBox, stageFill, stageLabel = chip(hud, "StageTag", 2, 2, 72, 11, "NIGHT - TURN 1", Night.Tag)
-	title(stageLabel)
 	local stepBox, stepFill, stepLabel = chip(hud, "SabbathStep", 2, 14, 72, 10, "", Colors.Panel)
 	local mockBadge = chip(hud, "ServerBadge", 250, 2, 34, 11, "MOCK", Colors.Mock, Colors.Ink)
 	mockBadge.Visible = false
@@ -808,13 +806,14 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		marker.ZIndex = 2
 
 		-- One row under the feet, so the sprite's face and body stay clear.
-		local callouts = Hud.frame(hudHolder, "Callouts", (96 - CALLOUT_ROW_W) // 2, CALLOUT_Y, CALLOUT_ROW_W, CALLOUT_H)
+		-- renderFighters sizes the row to the space between this fighter and its neighbours.
+		local callouts = Hud.frame(hudHolder, "Callouts", 0, CALLOUT_Y, 96, CALLOUT_H)
 		callouts.ZIndex = 2
 		local layout = Instance.new("UIListLayout")
 		layout.FillDirection = Enum.FillDirection.Horizontal
 		layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 		layout.SortOrder = Enum.SortOrder.LayoutOrder
-		layout.Padding = UDim.new(0, 2)
+		layout.Padding = UDim.new(0, CALLOUT_GAP)
 		layout.Parent = callouts
 
 		return {
@@ -882,23 +881,25 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		end
 	end
 
-	-- Sized to its text on the overlay grid. The row keeps the first
-	-- MAX_CALLOUTS by priority (TARGETED first); the plate already shows fire,
-	-- Finisher and the active fighter by colour.
+	-- Sized to its text on the overlay grid. Chips are added in priority order
+	-- (TARGETED first) while they fit the row whole; one that would not fit is
+	-- left out rather than truncated. The plate already shows fire, Finisher
+	-- and the active fighter by colour.
 	local function addCallout(view: FighterView, order: number, text: string, color: Color3, textColor: Color3?)
-		local shown = 0
+		local rowW = view.callouts.Size.X.Offset
+		local used = 0
 		for _, child in view.callouts:GetChildren() do
 			if child:IsA("Frame") then
-				shown += 1
+				used += child.Size.X.Offset + CALLOUT_GAP
 			end
 		end
-		if shown >= MAX_CALLOUTS then
+		local h = CALLOUT_H * Hud.scale
+		local textW = TextService:GetTextSize(text, PixelUi.HUD_TEXT_SIZE, Enum.Font.Arcade, Vector2.new(1000, h)).X
+		local w = textW + 4
+		if used + w > rowW and used > 0 then
 			return
 		end
-		local rowW = CALLOUT_ROW_W * Hud.scale
-		local h = CALLOUT_H * Hud.scale
-		local textW = TextService:GetTextSize(text, PixelUi.HUD_TEXT_SIZE, Enum.Font.Arcade, Vector2.new(rowW, h)).X
-		local w = math.min(rowW, textW + 6)
+		w = math.min(w, rowW)
 		local outline, fill = PixelUi.box(view.callouts, `Callout{order}`, 0, 0, w, h, color)
 		outline.LayoutOrder = order
 		local label = PixelUi.label(fill, "Text", 0, 0, w - 2, h - 2, text, textColor or Colors.Text, Enum.TextXAlignment.Center)
@@ -932,6 +933,19 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		if chosen and (actors[chosen] == nil or actors[chosen].hp <= 0) then
 			chosenFoe = nil
 		end
+		-- Slots first, so each callout row can take the space up to the halfway
+		-- point to its nearest neighbour (and the screen edge) without colliding.
+		local slotX: { [string]: number } = {}
+		for _, actor in snapshot.actors do
+			if actor.team == "Player" then
+				partyIndex += 1
+				slotX[actor.id] = PARTY_SLOTS_X[math.min(partyIndex, #PARTY_SLOTS_X)]
+			else
+				enemyIndex += 1
+				slotX[actor.id] = enemySlots[math.min(enemyIndex, #enemySlots)]
+			end
+		end
+		local half = FighterSprite.CANVAS // 2
 		for _, actor in snapshot.actors do
 			local view = fighters[actor.id]
 			if not view then
@@ -939,16 +953,19 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 				fighters[actor.id] = view
 			end
 			assert(view)
-			local x
-			if actor.team == "Player" then
-				partyIndex += 1
-				x = PARTY_SLOTS_X[math.min(partyIndex, #PARTY_SLOTS_X)]
-			else
-				enemyIndex += 1
-				x = enemySlots[math.min(enemyIndex, #enemySlots)]
-			end
+			local x = slotX[actor.id]
 			view.root.Position = UDim2.fromOffset(x, FEET_Y - FighterSprite.FEET_ROW)
 			view.hudRoot.Position = Hud.offset(x, FEET_Y - FighterSprite.FEET_ROW)
+			local centre = x + half
+			local room = math.min(centre, PixelUi.NATIVE_WIDTH - centre) * 2
+			for otherId, otherX in slotX do
+				if otherId ~= actor.id then
+					room = math.min(room, math.abs(otherX - x))
+				end
+			end
+			local rowW = math.min(FighterSprite.CANVAS, room) * Hud.scale - CALLOUT_GAP
+			view.callouts.Size = UDim2.fromOffset(rowW, CALLOUT_H * Hud.scale)
+			view.callouts.Position = UDim2.fromOffset((FighterSprite.CANVAS * Hud.scale - rowW) // 2, CALLOUT_Y * Hud.scale)
 
 			local down = actor.hp <= 0
 			local onFire = actor.onFireTurnsRemaining > 0
