@@ -1,6 +1,6 @@
 # Claude Phase 3 Handoff
 
-Phase 2 is on main at `b3758d3`, including the compact HUD, ring QTE, and server-owned turn advancement. Review the Phase 3 contracts in [PR #13](https://github.com/complexdeluxe/Golden-Sun/pull/13). The [wire checklist](PHASE_STATUS.md#phase-3-contract-review) describes the shared fields and requests.
+Phase 2 is on main at `b3758d3`, including the compact HUD, ring QTE, and server-owned turn advancement. Review the Phase 3 contracts in [PR #13](https://github.com/complexdeluxe/Golden-Sun/pull/13). The [wire checklist](PHASE_ARCHIVE_0_3.md#phase-3-contract-review) describes the shared fields and requests.
 
 ## First playable slice
 
