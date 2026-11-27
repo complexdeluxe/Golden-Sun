@@ -67,8 +67,9 @@ assert(Remote.Sandbox.SubmitSandboxSecondary.name == "SubmitSandboxSecondary")
 assert(Remote.Sandbox.SubmitSandboxQteCheck.name == "SubmitSandboxQteCheck")
 assert(Remote.Sandbox.SetSandboxQteMode.name == "SetSandboxQteMode")
 assert(Remote.Sandbox.SandboxSnapshotChanged.className == "RemoteEvent")
-assert(Assets.TutorialStage == "rbxassetid://0" and Assets.BlackSabbathStage == "rbxassetid://0")
-assert(Assets.UVFlashIcon == "rbxassetid://0" and Assets.CompanionIdle == "rbxassetid://0")
+for _, assetId in { Assets.TutorialStage, Assets.BlackSabbathStage, Assets.UVFlashIcon, Assets.CompanionIdle } do
+	assert(string.match(assetId, "^rbxassetid://[1-9]%d*$"), "Expected a populated Roblox asset ID")
+end
 local heavy = Combat.HighRiskHeavy
 assert(heavy.baseMultiplier == 1.70 and heavy.timingByGrade[0] == 0 and heavy.timingByGrade[3] == 1)
 assert(heavy.timingByGrade[1] == 0.35 and heavy.timingByGrade[2] == 0.70)
