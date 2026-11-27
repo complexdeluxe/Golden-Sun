@@ -17,6 +17,8 @@ export type Saved = {
 	lifeId: string?,
 	clears: { [string]: { [Map.NodeId]: boolean } },
 	pending: Event?,
+	-- Present until the heir starts an encounter. Rank 0 means no bonus has been paid.
+	starterPurseRank: number?,
 }
 
 local Progression = {}
@@ -30,6 +32,9 @@ function Progression.decode(value: unknown): Saved?
 	if type(value) ~= "table" then return nil end
 	local raw = value :: { [string]: unknown }
 	if type(raw.clears) ~= "table" or (raw.lifeId ~= nil and type(raw.lifeId) ~= "string") then return nil end
+	local purse = raw.starterPurseRank
+	if purse ~= nil and (type(purse) ~= "number" or not (purse >= 0 and purse <= 3 and purse % 1 == 0)
+		or raw.lifeId == nil) then return nil end
 	for act, nodes in raw.clears :: { [string]: unknown } do
 		if (act ~= "2" and act ~= "3" and act ~= "4" and act ~= "5") or type(nodes) ~= "table" then return nil end
 		for id, cleared in nodes :: { [string]: unknown } do

@@ -27,7 +27,7 @@ local function new(lineage: LineageController, activity: ActivityController): Pr
 
 	local function apply(userId: number, event: Progression.Event): boolean
 		local current = life(userId)
-		if not current or current.id ~= event.lifeId then return false end
+		if not current then return false end
 		local id, lifeId = event.battleId, event.lifeId
 		local castle = event.nodeId == "Castle"
 		if event.outcome == "Defeat" then
@@ -36,6 +36,8 @@ local function new(lineage: LineageController, activity: ActivityController): Pr
 				mode = "FirstClear", fullPartyWipe = true,
 			}).ok
 		end
+
+		if current.id ~= lifeId then return false end
 
 		-- Each hook is keyed independently. The campaign outbox can replay after
 		-- a failed save of any one hook, or after a lost acknowledgement.

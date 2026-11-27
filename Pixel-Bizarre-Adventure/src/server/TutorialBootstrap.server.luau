@@ -10,6 +10,7 @@ local HttpService = game:GetService("HttpService")
 local Succession = require("@game/ReplicatedStorage/Shared/Core/SuccessionSession")
 local Activity = require("@game/ReplicatedStorage/Shared/Core/ActivitySession")
 local Bridge = require("@game/ReplicatedStorage/Shared/Core/CampaignProgressionBridge")
+local HeirReset = require("@game/ReplicatedStorage/Shared/Core/CampaignHeirReset")
 
 -- Studio defaults to a server-local test profile. The published game uses DataStore.
 -- Existing Studio API-enabled test places can enable the isolated Studio store.
@@ -17,6 +18,7 @@ local useStudioDataStore = game:GetService("ServerScriptService"):GetAttribute("
 local saves = SaveService.new(useStudioDataStore)
 local checkHub: ((number) -> boolean)? = nil
 local options: Succession.Options = {
+	applyHeirReset = HeirReset.apply,
 	clock = os.time,
 	makeId = function() return HttpService:GenerateGUID(false) end,
 	isSafeHub = function(userId: number): boolean

@@ -13,6 +13,8 @@ export type Options = {
 	isSafeHub: (number) -> boolean,
 	-- Frozen into the life record. The default is the lower end of the spec's 75–80 range.
 	baseNaturalDeathAge: number?,
+	-- Live hosts patch the campaign and wallet inside the lineage transaction.
+	applyHeirReset: ((Profile.Row, Profile.Saved, Profile.Saved) -> Profile.Row?)?,
 }
 export type CastleWipe = {
 	lifeId: Contract.LifeId,
@@ -224,7 +226,12 @@ local function new(store: Store, options: Options)
 				return nil
 			end
 			updated.revision += 1
-			return Profile.encodeRow(raw, updated, { sessionId = id, expiresAt = at + LEASE_SECONDS })
+			local persisted = if options.applyHeirReset then options.applyHeirReset(raw, state, updated) else raw
+			if not persisted then
+				changed, code, message = false, "SaveUnavailable", "Could not commit the heir's campaign profile."
+				return nil
+			end
+			return Profile.encodeRow(persisted, updated, { sessionId = id, expiresAt = at + LEASE_SECONDS })
 		end)
 		if not available then return nil, false, "SaveUnavailable", "Could not confirm the lineage save. Retry the same request or event." end
 		if not changed then return current, false, code, message end
@@ -281,19 +288,26 @@ local function new(store: Store, options: Options)
 	end
 
 	-- Hooks are for trusted encounter/progression code. Each targets a specific life.
-	local function event(userId: number, lifeId: string, change: Change): HookResponse
+		local function event(userId: number, lifeId: string, change: Change, terminalReplayId: string?): HookResponse
 		if not Profile.token(lifeId) then return invalidEvent() end
 		local lease = sessions[userId]
 		if not lease then return { ok = false, code = "ProfileLocked", message = "Open the lineage session first." } end
 		local state, changed, code, reason = transact(userId, lease.sessionId, function(updated, hub)
-			if updated.closedLives[lifeId] then return false, "AlreadySettled", "That life already settled." end
+			local closed = updated.closedLives[lifeId]
+			if closed then
+				local settlement = closed.settlement
+				if terminalReplayId and settlement and settlement.cause == "CastleWipe" and settlement.eventId == terminalReplayId then
+					return false, nil, nil
+				end
+				return false, "AlreadySettled", "That life already settled."
+			end
 			if updated.life.id ~= lifeId then return false, "IllegalAction", "That life is not current." end
 			return change(updated, hub)
 		end)
 		if code or not state then return { ok = false, code = code or "SaveUnavailable", message = reason or "Could not save the event." } end
 		return {
 			ok = true, changed = changed, snapshot = view(userId, state, lease.sessionId),
-			settlement = Profile.copy(state.life.settlement) :: Profile.Settlement?,
+			settlement = Profile.copy((state.closedLives[lifeId] or state.life).settlement) :: Profile.Settlement?,
 		}
 	end
 
@@ -326,6 +340,7 @@ local function new(store: Store, options: Options)
 
 	local function recordCastleWipe(userId: number, wipe: CastleWipe): HookResponse
 		if not Profile.token(wipe.eventId) or not Profile.integer(wipe.act, 1, #Data.ActEchoes) then return invalidEvent() end
+		local heirId: string? = nil
 		return event(userId, wipe.lifeId, function(state)
 			local life = state.life
 			if not wipe.fullPartyWipe or wipe.encounterKind ~= "Castle" or wipe.mode ~= "FirstClear"
@@ -334,10 +349,19 @@ local function new(store: Store, options: Options)
 			if wipe.act ~= Profile.latestAct(life) + 1 then return false, "IllegalAction", "This Castle is not the current Act." end
 			life.castleWipes = table.clone(life.castleWipes)
 			life.castleWipes[wipe.eventId] = true
-			if life.recoveriesRemaining == 0 then Profile.settle(state, "CastleWipe")
-			else life.recoveriesRemaining -= 1 end
+			if life.recoveriesRemaining == 0 then
+				Profile.settle(state, "CastleWipe", wipe.eventId)
+				if options.applyHeirReset then
+					local id = heirId or options.makeId()
+					heirId = id
+					if not Profile.beginNextLife(state, id) then return false, "SaveUnavailable", "Could not create the next life." end
+				end
+			else
+				life.recoveriesRemaining -= 1
+			end
 			return true, nil, nil
-		end)
+		end, if options.applyHeirReset and wipe.fullPartyWipe and wipe.encounterKind == "Castle" and wipe.mode == "FirstClear"
+			then wipe.eventId else nil)
 	end
 
 	local function advanceAge(userId: number, lifeId: string, eventId: string, years: number): HookResponse

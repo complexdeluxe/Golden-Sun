@@ -192,6 +192,13 @@ local function new(
 	end
 
 	local function replaceRecord(state: State, record: Record)
+		local previousLife = state.record.profile.progression.lifeId
+		local progression = record.profile.progression
+		if previousLife ~= progression.lifeId and progression.starterPurseRank ~= nil then
+			state.destination = "Hub"
+			state.fight = nil
+			state.finishedBattles = {}
+		end
 		if record.writeRevision ~= state.record.writeRevision
 			or record.tutorial.tutorialCompleted ~= state.record.tutorial.tutorialCompleted
 			or record.tutorial.origin ~= state.record.tutorial.origin then
@@ -212,7 +219,12 @@ local function new(
 			replaceRecord(state, saved)
 			return true
 		end
-		if newer then replaceRecord(state, newer) end
+		if newer then
+			replaceRecord(state, newer)
+			-- A terminal wipe can acknowledge its outbox entry by atomically
+			-- replacing the whole campaign with the heir's starter state.
+			return newer.profile.progression.pending == nil
+		end
 		return false
 	end
 
@@ -412,6 +424,10 @@ local function new(
 			updated = table.clone(profile)
 			updated.actOne = table.clone(profile.actOne)
 			updated.actOne.pending = assert(fight).attempt
+			if profile.progression.starterPurseRank ~= nil then
+				updated.progression = table.clone(profile.progression)
+				updated.progression.starterPurseRank = nil
+			end
 		elseif request.kind == "RecruitCompanion" then
 			if currentScene.kind ~= "Hub" and currentScene.kind ~= "ActResults" then
 				return reject("IllegalAction", "Recruit from Results or the Hub.", state)

@@ -7,7 +7,7 @@ local Tutorial = require("./TutorialProgress")
 
 export type Lease = { sessionId: string, expiresAt: number }
 export type Cause = "Voluntary" | "CastleWipe" | "OldAge"
-export type Settlement = { cause: Cause, echoesAwarded: number }
+export type Settlement = { cause: Cause, echoesAwarded: number, eventId: string? }
 export type Life = {
 	id: Contract.LifeId,
 	generation: number,
@@ -149,11 +149,11 @@ local function ledger(life: Life): Contract.RecoveryLedgerView
 	}
 end
 
-local function settle(state: Saved, cause: Cause): Settlement
+local function settle(state: Saved, cause: Cause, eventId: string?): Settlement
 	assert(not state.life.ledgerSettled, "Life already settled")
 	local quote = ledger(state.life)
 	local award = if cause == "Voluntary" then quote.retireNowEchoes else quote.terminalFallbackEchoes
-	local result: Settlement = { cause = cause, echoesAwarded = award }
+	local result: Settlement = { cause = cause, echoesAwarded = award, eventId = eventId }
 	state.life.ledgerSettled = true
 	state.life.settlement = result
 	state.echoes += award

@@ -22,6 +22,13 @@ local nodes: { [Succession.BloodlineNodeId]: Node } = {
 	chrome_resilience = node("Chrome Resilience", "Eligible races gain +5 / +10 tolerance; Full Borg strain thresholds rise to 132 / 136. Zero-tolerance races gain 1 year less Dungeon/retry aging at rank 1 and +5 Control Resist at rank 2.", { 35, 70 }),
 }
 
+local familyPurseBonuses = table.freeze({
+	[0] = table.freeze({ yen = 0, salvageShards = 0 }),
+	table.freeze({ yen = 50, salvageShards = 5 }),
+	table.freeze({ yen = 120, salvageShards = 12 }),
+	table.freeze({ yen = 220, salvageShards = 25 }),
+})
+
 local milestones = table.freeze({ 8, 10, 12, 20, 30 })
 local multipliers: { [number]: number } = { [3] = 100, [4] = 110, [5] = 125 }
 -- The spec names two examples. The other three slots have stable IDs for future encounter content.
@@ -53,6 +60,7 @@ return table.freeze({
 	BranchNodes = Succession.BloodlineNodeIds,
 	Nodes = table.freeze(nodes),
 	ActEchoes = milestones,
+	FamilyPurseBonuses = familyPurseBonuses,
 	RetirementMultiplierPct = table.freeze(multipliers),
 	EndgameChallengeEchoes = table.freeze(challenges),
 	LongevityYears = table.freeze({ 5, 10, 15 }),
