@@ -43,6 +43,7 @@ local function runTutorial(
 	screenGui: ScreenGui,
 	connection: TutorialConnection.Connection,
 	appearance: AppearanceTypes.Appearance?,
+	sprites: AppearanceTypes.AppearanceSprites?,
 	finish: (Origin?) -> ()
 )
 	local snapshot: CombatTypes.CombatSnapshot? = nil
@@ -136,6 +137,7 @@ local function runTutorial(
 		end,
 		onOpenSandbox = nil,
 		playerAppearance = appearance,
+		playerSprites = sprites,
 	})
 	view:setMock(connection.isMock)
 
@@ -184,13 +186,19 @@ local function runOriginSelect(screenGui: ScreenGui, connection: TutorialConnect
 end
 
 -- `appearance` is the look committed in the Creator, drawn on the player.
-function TutorialFlow.run(screenGui: ScreenGui, mode: "Tutorial" | "OriginSelect", appearance: AppearanceTypes.Appearance?): Origin?
+-- `sprites` is the snapshot's appearanceSprites for the layered player sprite.
+function TutorialFlow.run(
+	screenGui: ScreenGui,
+	mode: "Tutorial" | "OriginSelect",
+	appearance: AppearanceTypes.Appearance?,
+	sprites: AppearanceTypes.AppearanceSprites?
+): Origin?
 	local connection = TutorialConnection.connect()
 	return waitFor(function(finish)
 		if mode == "OriginSelect" then
 			runOriginSelect(screenGui, connection, finish)
 		else
-			runTutorial(screenGui, connection, appearance, finish)
+			runTutorial(screenGui, connection, appearance, sprites, finish)
 		end
 	end)
 end

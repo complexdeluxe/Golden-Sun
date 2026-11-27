@@ -4,6 +4,10 @@
 -- Every size and position here is in native pixels on the 320 x 180 battle
 -- grid. The whole grid is scaled up by a whole number (2x, 3x, 4x...) so pixels
 -- never blur or end up different sizes.
+--
+-- The battle HUD can also draw on a 640 x 360 overlay (layeredRoot + grid):
+-- the stage and fighters stay on the 320 x 180 world, while text and chrome
+-- get twice the resolution, 1 px borders and 14-16 px text.
 
 local PixelUi = {}
 
@@ -11,6 +15,13 @@ PixelUi.NATIVE_WIDTH = 320
 PixelUi.NATIVE_HEIGHT = 180
 PixelUi.FONT = Font.fromEnum(Enum.Font.Arcade)
 PixelUi.TEXT_SIZE = 8
+
+-- HUD overlay: two overlay pixels per world pixel.
+PixelUi.HUD_SCALE = 2
+PixelUi.HUD_WIDTH = PixelUi.NATIVE_WIDTH * PixelUi.HUD_SCALE
+PixelUi.HUD_HEIGHT = PixelUi.NATIVE_HEIGHT * PixelUi.HUD_SCALE
+PixelUi.HUD_TEXT_SIZE = 14
+PixelUi.HUD_TITLE_SIZE = 16
 
 PixelUi.Colors = {
 	Ink = Color3.fromHex("#0e101a"),
@@ -198,6 +209,105 @@ function PixelUi.integerScaledRoot(screenGui: ScreenGui): Frame
 	refit()
 
 	return root
+end
+
+-- The 320 x 180 world root plus a sibling 640 x 360 HUD overlay drawn over it.
+-- The overlay covers exactly the same screen rectangle: its scale is always
+-- half the world's, so overlay (2x, 2y) sits on world pixel (x, y).
+-- Put the stage and fighter sprites on the world, and text and chrome on the HUD.
+function PixelUi.layeredRoot(screenGui: ScreenGui): (Frame, Frame)
+	local world = PixelUi.integerScaledRoot(screenGui)
+	world.ZIndex = 1
+	local worldScale = world:FindFirstChildOfClass("UIScale") :: UIScale
+
+	local hud = Instance.new("Frame")
+	hud.Name = "HudOverlay"
+	hud.AnchorPoint = Vector2.new(0.5, 0.5)
+	hud.Position = UDim2.fromScale(0.5, 0.5)
+	hud.Size = UDim2.fromOffset(PixelUi.HUD_WIDTH, PixelUi.HUD_HEIGHT)
+	hud.BackgroundTransparency = 1
+	hud.BorderSizePixel = 0
+	hud.ClipsDescendants = true
+	hud.ZIndex = 2
+	hud.Parent = world.Parent
+
+	local hudScale = Instance.new("UIScale")
+	hudScale.Parent = hud
+	local function sync()
+		hudScale.Scale = worldScale.Scale / PixelUi.HUD_SCALE
+	end
+	worldScale:GetPropertyChangedSignal("Scale"):Connect(sync)
+	sync()
+
+	return world, hud
+end
+
+-- Builders for a finer grid that takes the same layout numbers as the world
+-- grid. Positions and sizes are multiplied by `scale`, borders and bar tracks
+-- stay 1 px of the finer grid, and text uses `textSize`.
+export type Grid = {
+	scale: number,
+	textSize: number,
+	offset: (x: number, y: number) -> UDim2,
+	frame: (parent: Instance?, name: string, x: number, y: number, w: number, h: number, color: Color3?) -> Frame,
+	box: (parent: Instance?, name: string, x: number, y: number, w: number, h: number, color: Color3) -> (Frame, Frame),
+	label: (
+		parent: Instance?,
+		name: string,
+		x: number,
+		y: number,
+		w: number,
+		h: number,
+		text: string,
+		color: Color3?,
+		align: Enum.TextXAlignment?
+	) -> TextLabel,
+	button: (parent: Instance?, name: string, x: number, y: number, w: number, h: number, text: string) -> TextButton,
+	image: (parent: Instance?, name: string, x: number, y: number, w: number, h: number, assetId: string) -> ImageLabel,
+	bar: (
+		parent: Instance?,
+		name: string,
+		x: number,
+		y: number,
+		w: number,
+		h: number,
+		fillColor: Color3,
+		backColor: Color3
+	) -> (Frame, (fraction: number) -> ()),
+}
+
+function PixelUi.grid(scale: number, textSize: number): Grid
+	local s = scale
+	local grid: Grid = {
+		scale = scale,
+		textSize = textSize,
+		offset = function(x, y)
+			return UDim2.fromOffset(x * s, y * s)
+		end,
+		frame = function(parent, name, x, y, w, h, color)
+			return PixelUi.frame(parent, name, x * s, y * s, w * s, h * s, color)
+		end,
+		box = function(parent, name, x, y, w, h, color)
+			return PixelUi.box(parent, name, x * s, y * s, w * s, h * s, color)
+		end,
+		label = function(parent, name, x, y, w, h, text, color, align)
+			local label = PixelUi.label(parent, name, x * s, y * s, w * s, h * s, text, color, align)
+			label.TextSize = textSize
+			return label
+		end,
+		button = function(parent, name, x, y, w, h, text)
+			local button = PixelUi.button(parent, name, x * s, y * s, w * s, h * s, text)
+			button.TextSize = textSize
+			return button
+		end,
+		image = function(parent, name, x, y, w, h, assetId)
+			return PixelUi.image(parent, name, x * s, y * s, w * s, h * s, assetId)
+		end,
+		bar = function(parent, name, x, y, w, h, fillColor, backColor)
+			return PixelUi.bar(parent, name, x * s, y * s, w * s, h * s, fillColor, backColor)
+		end,
+	}
+	return grid
 end
 
 return PixelUi

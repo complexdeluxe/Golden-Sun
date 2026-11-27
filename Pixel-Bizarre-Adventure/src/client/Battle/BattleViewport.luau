@@ -43,6 +43,8 @@ export type Callbacks = {
 	onOpenSandbox: (() -> ())?,
 	-- Optional: the player's Creator look, drawn on the player's placeholder sprite.
 	playerAppearance: AppearanceTypes.Appearance?,
+	-- Optional: the campaign's modular body / hair / accent layers for that look.
+	playerSprites: AppearanceTypes.AppearanceSprites?,
 }
 
 type FighterView = {
@@ -280,8 +282,10 @@ function BattleViewport.new(screenGui: ScreenGui, callbacks: Callbacks): BattleV
 	local function makeFighter(actor: ActorState): FighterView
 		local facingLeft = actor.team == "Enemy"
 		local holder = PixelUi.frame(fighterLayer, actor.id, 0, FEET_Y - FighterSprite.FEET_ROW, 96, 96)
-		local appearance = if actor.spriteKey == "PlayerIdle" then callbacks.playerAppearance else nil
-		local sprite = FighterSprite.create(holder, actor.spriteKey, facingLeft, appearance)
+		local isPlayer = actor.spriteKey == "PlayerIdle"
+		local appearance = if isPlayer then callbacks.playerAppearance else nil
+		local layers = if isPlayer then callbacks.playerSprites else nil
+		local sprite = FighterSprite.create(holder, actor.spriteKey, facingLeft, appearance, layers)
 		local flash = PixelUi.frame(holder, "HitFlash", 34, 28, 28, 60, Colors.Hp)
 		flash.BackgroundTransparency = 1
 
