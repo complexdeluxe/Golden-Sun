@@ -1,7 +1,8 @@
 --!strict
--- The single Public Hub. Phase 3 stations only: Shop (restock and gear),
--- Bag (inventory, gear and belt loadout), Party (recruit when offered), and
--- Set Out to the Act Map. Later stations stay hidden until their phase.
+-- The single Public Hub. Shop (restock and gear), Bag (inventory, gear and
+-- belt loadout), Party (recruit when offered), the Phase 4 Blacksmith (opens
+-- over the Hub, see Phase4/BlacksmithScreen), and Set Out to the Act Map.
+-- Later stations stay hidden until their phase.
 --
 -- Layout (native px):
 --   top bar       0..14    title, level, Yen
@@ -17,6 +18,7 @@ local FighterSprite = require(script.Parent.Parent.Battle.FighterSprite)
 local OriginSelect = require(script.Parent.Parent.Battle.OriginSelect)
 local CampaignUi = require(script.Parent.CampaignUi)
 local Screen = require(script.Parent.Screen)
+local BlacksmithScreen = require(script.Parent.Parent.Phase4.BlacksmithScreen)
 
 type Snapshot = HubTypes.CampaignSnapshot
 type ShopOffer = HubTypes.ShopOffer
@@ -50,11 +52,12 @@ function HubScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 	local preview = CampaignUi.preview(stage, "Preview", 0, -12)
 	local originLabel = PixelUi.label(frame, "Origin", 2, 107, 98, 9, "", Colors.TextDim, Enum.TextXAlignment.Center)
 	local stationButtons: { [Station]: CampaignUi.Button } = {
-		Shop = CampaignUi.button(frame, "ShopTab", 4, 117, 94, 12, "SHOP"),
-		Bag = CampaignUi.button(frame, "BagTab", 4, 130, 94, 12, "BAG"),
-		Party = CampaignUi.button(frame, "PartyTab", 4, 143, 94, 12, "PARTY"),
+		Shop = CampaignUi.button(frame, "ShopTab", 4, 117, 94, 11, "SHOP"),
+		Bag = CampaignUi.button(frame, "BagTab", 4, 129, 94, 11, "BAG"),
+		Party = CampaignUi.button(frame, "PartyTab", 4, 141, 94, 11, "PARTY"),
 	}
-	local setOut = CampaignUi.button(frame, "SetOut", 4, 159, 94, 18, "SET OUT >")
+	local smithButton = CampaignUi.button(frame, "SmithTab", 4, 153, 94, 11, "BLACKSMITH")
+	local setOut = CampaignUi.button(frame, "SetOut", 4, 165, 94, 13, "SET OUT >")
 
 	local content = PixelUi.frame(frame, "Content", CONTENT_X, 16, 214, 162)
 
@@ -142,6 +145,8 @@ function HubScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 	local selection: Selection? = nil
 	local bagPage = 1
 	local spriteKey: string? = nil
+	local blacksmith: BlacksmithScreen.Blacksmith? = nil
+	local openingSmith = false
 
 	local function hubPayload(): (HubTypes.HubView?, Inventory?)
 		local current = snapshot
@@ -609,6 +614,53 @@ function HubScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 		end)
 	end
 
+	-- Blacksmith ----------------------------------------------------------------
+
+	local function equippedEntry(uuid: string): boolean
+		local _, inventory = hubPayload()
+		if not inventory then
+			return false
+		end
+		for _, slot in inventory.gear do
+			if slot.entryId == uuid then
+				return true
+			end
+		end
+		return false
+	end
+
+	smithButton.button.Activated:Connect(function()
+		if busy or blacksmith or openingSmith then
+			return
+		end
+		if actions.isMock then
+			actions.toast("The Blacksmith needs the game server.")
+			return
+		end
+		openingSmith = true
+		smithButton.setState("Disabled")
+		local client = actions.phase4()
+		openingSmith = false
+		if not frame.Parent then
+			return
+		end
+		rerender()
+		if not client then
+			actions.toast("The Blacksmith is closed. Try again soon.")
+			return
+		end
+		blacksmith = BlacksmithScreen.open(frame, {
+			client = client,
+			toast = actions.toast,
+			isEquipped = equippedEntry,
+			onClose = function()
+				blacksmith = nil
+				-- Smith work spends the shared Yen wallet. Show the current balance.
+				actions.refreshCampaign()
+			end,
+		})
+	end)
+
 	setOut.button.Activated:Connect(function()
 		local hub = hubPayload()
 		if busy or not hub then
@@ -642,6 +694,7 @@ function HubScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 		renderBag(scene.inventory)
 		renderParty(current)
 		setOut.setState(if scene.hub.setOutLegality.canUse and not busy then "Primary" else "Disabled")
+		smithButton.setState(if busy or openingSmith or actions.isMock then "Disabled" else "Normal")
 	end
 
 	function self.setBusy(_self: Screen.Screen, value: boolean)
@@ -650,6 +703,11 @@ function HubScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 	end
 
 	function self.destroy(_self: Screen.Screen)
+		local open = blacksmith
+		blacksmith = nil
+		if open then
+			open:destroy()
+		end
 		frame:Destroy()
 	end
 

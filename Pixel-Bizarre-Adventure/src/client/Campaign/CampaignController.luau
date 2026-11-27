@@ -30,6 +30,8 @@ local EncounterScreen = require(script.Parent.EncounterScreen)
 local ResultsScreen = require(script.Parent.ResultsScreen)
 local ActBattle = require(script.Parent.ActBattle)
 local ActBattleConnection = require(script.Parent.ActBattleConnection)
+local Phase4Client = require(script.Parent.Parent.Phase4.Phase4Client)
+local Phase4Connection = require(script.Parent.Parent.Phase4.Phase4Connection)
 
 type Snapshot = HubTypes.CampaignSnapshot
 type Response = RemoteContract.CampaignResponse
@@ -102,6 +104,8 @@ function CampaignController.run(playerGui: Instance)
 	local battle: ActBattle.ActBattle? = nil
 	local actConnection: ActBattleConnection.Connection? = nil
 	local actConnecting = false
+	local phase4: Phase4Client.Client? = nil
+	local phase4Connecting = false
 	local actions: Screen.Actions
 	local accept: (incoming: Snapshot, fromEvent: boolean) -> ()
 	local show: (current: Snapshot) -> ()
@@ -297,6 +301,27 @@ function CampaignController.run(playerGui: Instance)
 		toast = toast,
 		isMock = connection.isMock,
 		resolveEncounter = connection.resolveEncounter,
+		phase4 = function(): Phase4Client.Client?
+			if phase4 or connection.isMock or phase4Connecting then
+				return phase4
+			end
+			phase4Connecting = true
+			phase4 = Phase4Connection.connect()
+			phase4Connecting = false
+			return phase4
+		end,
+		refreshCampaign = function()
+			if busy then
+				return
+			end
+			setBusy(true)
+			local response = connection.getSnapshot()
+			apply(response)
+			if response.ok ~= true then
+				refresh()
+			end
+			setBusy(false)
+		end,
 	}
 
 	connection.onSnapshotChanged(function(incoming)
