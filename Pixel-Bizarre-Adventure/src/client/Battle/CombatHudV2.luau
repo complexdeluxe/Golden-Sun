@@ -34,6 +34,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
 local TextService = game:GetService("TextService")
 local UserInputService = game:GetService("UserInputService")
 local CombatTypes = require(ReplicatedStorage.Shared.Contracts.CombatTypes)
@@ -2123,7 +2124,20 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 		end
 	end
 
+	-- Roblox's player list can cover the top-right combat controls.
+	local playerList = Enum.CoreGuiType.PlayerList
+	local playerListWasEnabled = StarterGui:GetCoreGuiEnabled(playerList)
+	local playerListRestored = false
+	StarterGui:SetCoreGuiEnabled(playerList, false)
+	local function restorePlayerList()
+		if playerListRestored then return end
+		playerListRestored = true
+		StarterGui:SetCoreGuiEnabled(playerList, playerListWasEnabled)
+	end
+	root.Destroying:Once(restorePlayerList)
+
 	function self.destroy(_self: CombatHudV2)
+		restorePlayerList()
 		for _, connection in connections do
 			connection:Disconnect()
 		end
