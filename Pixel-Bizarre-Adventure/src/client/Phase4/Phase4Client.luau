@@ -9,11 +9,12 @@
 --   * An uncertain reply (the call errored, came back empty, or the server said
 --     SaveUnavailable) is retried with the same request, so the server can
 --     return the receipt it already committed instead of charging twice. If the
---     retries run out, the request is kept and the next press of the same
---     action reuses it.
---   * ProfileLocked without a snapshot means the lease expired. The client opens
---     a new session and, if an earlier attempt was uncertain, retries the same
---     requestId under it.
+--     retries run out, or a reconnect fails, the request is kept with its
+--     original ID and action. The next press of any action sends that request
+--     again first. Only a definitive reply clears it.
+--   * ProfileLocked means the lease expired. The client opens a new session
+--     and, if an earlier attempt was uncertain, retries the same requestId and
+--     action under it.
 --   * StaleRevision (and any other definitive rejection) adopts the snapshot the
 --     server returned so the station can show the new price or balance. It is
 --     never retried automatically.
@@ -49,6 +50,9 @@ export type Result = {
 	message: string?,
 	-- True when the server never confirmed either way. The request is kept.
 	uncertain: boolean?,
+	-- True when this reply settled an earlier unconfirmed action instead of the
+	-- one just pressed. The receipt (if any) belongs to that earlier action.
+	resolvedPending: boolean?,
 }
 
 export type Client = {
@@ -87,7 +91,8 @@ Phase4Client.signature = signature
 
 function Phase4Client.new(transport: Transport, options: Options): Client
 	local current: Snapshot? = nil
-	-- An uncertain request kept for a retry of the same action.
+	-- An unconfirmed request, kept with its original ID and action until the
+	-- server answers it definitively.
 	local held: { request: ActionRequest, signature: string }? = nil
 	local retries = options.retries or 3
 
@@ -129,6 +134,71 @@ function Phase4Client.new(transport: Transport, options: Options): Client
 		return { ok = false, code = response.code, message = response.message }
 	end
 
+	local function hold(request: ActionRequest, key: string): Result
+		held = { request = request, signature = key }
+		return {
+			ok = false, code = "SaveUnavailable", uncertain = true,
+			message = "Couldn't confirm with the server. Press again to retry.",
+		}
+	end
+
+	-- Sends one request until the server gives a definitive answer or the
+	-- retries run out. `uncertain` is true when an earlier send of this same
+	-- request may already have committed.
+	local function send(request: ActionRequest, key: string, uncertain: boolean): Result
+		local attempt = 0
+		local reconnected = false
+		while true do
+			local success, reply = pcall(transport.submit, request)
+			local response = if success and isTable(reply) then reply :: any else nil
+			local code = if response then response.code else nil
+			if response and response.ok == true then
+				held = nil
+				adopt(response.snapshot)
+				return { ok = true, receipt = response.receipt :: Receipt }
+			elseif response and code == "ProfileLocked" then
+				-- The lease lapsed. The server checks the lease before it looks up
+				-- receipts, so this says nothing about an earlier attempt.
+				if not uncertain then
+					-- This request never reached a live session: nothing was spent.
+					held = nil
+					local opened = self:refresh()
+					return {
+						ok = false, code = code,
+						message = if opened.ok then "The session was renewed. Check the item and try again." else opened.message,
+					}
+				end
+				if reconnected then
+					return hold(request, key)
+				end
+				reconnected = true
+				local opened = self:refresh()
+				local fresh = current
+				if not opened.ok or not fresh then
+					-- Keep the original request ID and action for the next press.
+					return hold(request, key)
+				end
+				-- Same request ID and action under the new session. The server
+				-- returns the committed receipt if the first attempt landed.
+				request = table.clone(request)
+				request.sessionId = fresh.sessionId
+				continue
+			elseif response and code ~= "SaveUnavailable" then
+				-- A definitive answer about this request. Show what the server has now.
+				held = nil
+				adopt(response.snapshot)
+				return { ok = false, code = code, message = response.message }
+			end
+			-- Uncertain: lost call, garbled reply, or the save could not be confirmed.
+			uncertain = true
+			attempt += 1
+			if attempt > retries then
+				return hold(request, key)
+			end
+			options.wait(BACKOFF_SECONDS[math.min(attempt, #BACKOFF_SECONDS)])
+		end
+	end
+
 	function self.perform(_self: Client, action: Action): Result
 		local snapshot = current
 		if not snapshot then
@@ -136,67 +206,24 @@ function Phase4Client.new(transport: Transport, options: Options): Client
 		end
 		local key = signature(action)
 		local kept = held
-		local request: ActionRequest
-		local wasUncertain = false
-		if kept and kept.signature == key then
-			-- Retry the same request. A new session (after a reconnect) is fine:
-			-- the server finds the receipt by request ID before checking revision.
-			request = table.clone(kept.request)
+		if kept then
+			-- An earlier action may have been charged. Settle it first, whatever
+			-- was pressed, with its original request ID and action under the
+			-- current session. Only a definitive reply clears it.
+			local request = table.clone(kept.request)
 			request.sessionId = snapshot.sessionId
-			wasUncertain = true
-		else
-			request = {
-				sessionId = snapshot.sessionId,
-				expectedRevision = snapshot.revision,
-				requestId = options.makeId(),
-				action = action,
-			}
+			local result = send(request, kept.signature, true)
+			if kept.signature ~= key and not result.uncertain then
+				result.resolvedPending = true
+			end
+			return result
 		end
-		held = nil
-
-		local attempt = 0
-		local reconnected = false
-		while true do
-			local success, reply = pcall(transport.submit, request)
-			local response = if success and isTable(reply) then reply :: any else nil
-			if response and response.ok == true then
-				adopt(response.snapshot)
-				return { ok = true, receipt = response.receipt :: Receipt }
-			end
-			local code = if response then response.code else nil
-			if response and code ~= "SaveUnavailable" then
-				if code == "ProfileLocked" and response.snapshot == nil and not reconnected then
-					-- The lease lapsed. Open a new session, then send the same request
-					-- under it if an earlier attempt may have landed.
-					reconnected = true
-					local opened = self:refresh()
-					local fresh = current
-					if opened.ok and fresh and wasUncertain then
-						request = table.clone(request)
-						request.sessionId = fresh.sessionId
-						continue
-					end
-					return {
-						ok = false, code = code,
-						message = if opened.ok then "The session was renewed. Check the item and try again." else opened.message,
-					}
-				end
-				-- A definitive answer. Show what the server has now.
-				adopt(response.snapshot)
-				return { ok = false, code = code, message = response.message }
-			end
-			-- Uncertain: lost call, garbled reply, or the save could not be confirmed.
-			wasUncertain = true
-			attempt += 1
-			if attempt > retries then
-				held = { request = request, signature = key }
-				return {
-					ok = false, code = "SaveUnavailable", uncertain = true,
-					message = "Couldn't confirm with the server. Press again to retry.",
-				}
-			end
-			options.wait(BACKOFF_SECONDS[math.min(attempt, #BACKOFF_SECONDS)])
-		end
+		return send({
+			sessionId = snapshot.sessionId,
+			expectedRevision = snapshot.revision,
+			requestId = options.makeId(),
+			action = action,
+		}, key, false)
 	end
 
 	return self
