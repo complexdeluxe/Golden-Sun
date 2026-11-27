@@ -148,7 +148,8 @@ function CampaignController.run(playerGui: Instance)
 		battleGui.Enabled = true
 		local current = snapshot
 		local appearance = if current then current.character.appearance else nil
-		local origin = TutorialFlow.run(battleGui, mode, appearance)
+		local sprites = if current then current.character.appearanceSprites else nil
+		local origin = TutorialFlow.run(battleGui, mode, appearance, sprites)
 		battleGui:ClearAllChildren()
 		battleGui.Enabled = false
 		campaignGui.Enabled = true
@@ -214,6 +215,7 @@ function CampaignController.run(playerGui: Instance)
 		battleGui.Enabled = true
 		battle = ActBattle.open(battleGui, act, encounter, {
 			appearance = current.character.appearance,
+			appearanceSprites = current.character.appearanceSprites,
 			acceptCampaign = function(incoming)
 				accept(incoming, false)
 			end,

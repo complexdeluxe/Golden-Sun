@@ -33,6 +33,8 @@ local SAVING_NOTE_DELAY = 0.5
 
 export type Options = {
 	appearance: AppearanceTypes.Appearance?,
+	-- CampaignSnapshot.character.appearanceSprites, for the layered player sprite.
+	appearanceSprites: AppearanceTypes.AppearanceSprites?,
 	-- Hands a campaign snapshot from a battle reply to the campaign controller.
 	acceptCampaign: (snapshot: HubTypes.CampaignSnapshot) -> (),
 	-- Calls GetCampaignSnapshot and applies it.
@@ -299,6 +301,7 @@ function ActBattle.open(
 			end
 		end,
 		playerAppearance = options.appearance,
+		playerSprites = options.appearanceSprites,
 	})
 
 	stopListening = connection.onSnapshotChanged(accept)

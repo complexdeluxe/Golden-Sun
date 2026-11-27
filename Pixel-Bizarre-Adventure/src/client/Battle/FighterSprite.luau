@@ -5,6 +5,13 @@
 -- pixelated scaling. While the manifest still holds the "rbxassetid://0"
 -- placeholder, a simple ink-outlined silhouette (about 60 px tall) is drawn so
 -- the battle reads correctly before the final sprites are uploaded.
+--
+-- The player's Creator look can also arrive as modular layers
+-- (CampaignSnapshot.character.appearanceSprites). Once the body layer has a
+-- real image, three 96 x 96 images are stacked: body (untinted), hair overlay
+-- (tinted with the saved hair colour) and the optional accent (untinted, e.g.
+-- HairCapTrim). A missing or unset hair/accent layer is skipped; an unset body
+-- falls back to the single sprite or the silhouette above.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local AssetManifest = require(ReplicatedStorage.Shared.Contracts.AssetManifest)
@@ -16,6 +23,8 @@ export type Palette = { skin: Color3, top: Color3, legs: Color3, hair: Color3 }
 
 local CANVAS = 96
 local FEET_ROW = 88
+-- Older saves and clients have no saved colour: Jet Black.
+local DEFAULT_HAIR_HEX = "#242633"
 
 local PALETTES: { [string]: Palette } = {
 	PlayerIdle = {
@@ -59,6 +68,39 @@ local FALLBACK: Palette = {
 
 local FighterSprite = {}
 
+-- The manifest image for `key`, or nil while it is missing or still unset.
+local function assetFor(key: AssetManifest.AssetKey?): string?
+	if key == nil then
+		return nil
+	end
+	local id = (AssetManifest :: any)[key]
+	if type(id) == "string" and id ~= PixelUi.UNSET_ASSET then
+		return id
+	end
+	return nil
+end
+
+-- One full-canvas pixelated layer. Mirrors without resampling by flipping the image rect.
+local function layer(canvas: Frame, name: string, assetId: string, facingLeft: boolean, zIndex: number): ImageLabel
+	local image = PixelUi.image(canvas, name, 0, 0, CANVAS, CANVAS, assetId)
+	image.ZIndex = zIndex
+	if facingLeft then
+		image.ImageRectOffset = Vector2.new(CANVAS, 0)
+		image.ImageRectSize = Vector2.new(-CANVAS, CANVAS)
+	end
+	return image
+end
+
+local function hairColor(hex: string?): Color3
+	if hex then
+		local ok, color = pcall(Color3.fromHex, hex)
+		if ok then
+			return color
+		end
+	end
+	return Color3.fromHex(DEFAULT_HAIR_HEX)
+end
+
 local function silhouette(canvas: Frame, palette: Palette, facingLeft: boolean, hair: { { number } }?)
 	-- Parts are listed back to front as { x, y, w, h, color } with the feet on row 88.
 	local top = FEET_ROW - 60
@@ -96,22 +138,32 @@ end
 
 -- Builds the canvas. The caller positions it so row 88 sits on the floor.
 -- `appearance` (the player's Creator look) recolours the placeholder skin and
--- draws the chosen hairstyle. It has no effect once a real sprite is set.
+-- draws the chosen hairstyle; its hairColorHex tints the hair layer.
+-- `sprites` (the snapshot's appearanceSprites) draws the modular layers once
+-- the body layer has a real image, ahead of `spriteKey`.
 function FighterSprite.create(
 	parent: Instance,
 	spriteKey: AssetManifest.AssetKey?,
 	facingLeft: boolean,
-	appearance: AppearanceTypes.Appearance?
+	appearance: AppearanceTypes.Appearance?,
+	sprites: AppearanceTypes.AppearanceSprites?
 ): Frame
 	local canvas = PixelUi.frame(parent, "Sprite", 0, 0, CANVAS, CANVAS)
-	local assetId = if spriteKey then AssetManifest[spriteKey] else nil
-	if assetId and assetId ~= PixelUi.UNSET_ASSET then
-		local image = PixelUi.image(canvas, "Image", 0, 0, CANVAS, CANVAS, assetId)
-		if facingLeft then
-			-- Mirror without resampling by flipping the image rect.
-			image.ImageRectOffset = Vector2.new(CANVAS, 0)
-			image.ImageRectSize = Vector2.new(-CANVAS, CANVAS)
+	local bodyId = if sprites then assetFor(sprites.bodySpriteKey) else nil
+	local assetId = assetFor(spriteKey)
+	if sprites and bodyId then
+		layer(canvas, "Body", bodyId, facingLeft, 1)
+		local hairId = assetFor(sprites.overlaySpriteKey)
+		if hairId then
+			local hair = layer(canvas, "Hair", hairId, facingLeft, 2)
+			hair.ImageColor3 = hairColor(if appearance then appearance.hairColorHex else nil)
 		end
+		local accentId = assetFor(sprites.accentSpriteKey)
+		if accentId then
+			layer(canvas, "Accent", accentId, facingLeft, 3)
+		end
+	elseif assetId then
+		layer(canvas, "Image", assetId, facingLeft, 1)
 	else
 		local palette = if spriteKey then PALETTES[spriteKey] or FALLBACK else FALLBACK
 		if appearance then
