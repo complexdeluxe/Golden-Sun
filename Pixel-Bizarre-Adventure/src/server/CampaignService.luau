@@ -1,12 +1,19 @@
 --!strict
 
 local Players = game:GetService("Players")
+local AnalyticsService = game:GetService("AnalyticsService")
 local HttpService = game:GetService("HttpService")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 
 local Remote = require("@game/ReplicatedStorage/Shared/Contracts/RemoteContract")
 local Session = require("@game/ReplicatedStorage/Shared/Core/CampaignSession")
 local ActBattle = require("@game/ReplicatedStorage/Shared/Core/CampaignActBattle")
+local Progression = require("@game/ReplicatedStorage/Shared/Core/CampaignProgression")
+
+local onboardingSteps = table.freeze({
+	"Joined", "AppearanceCreated", "TutorialStarted", "TutorialCleared", "OriginChosen",
+	"HubVisited", "Act1_F1_Cleared", "Act1_D1_Cleared", "CompanionRecruited",
+})
 
 type Payload = { [string]: unknown }
 type Handler = (number, Payload) -> Remote.CampaignResponse | Remote.ActBattleResponse
@@ -26,7 +33,7 @@ local function validAction(payload: Payload): boolean
 	if kind == "Navigate" then return payload.destination == "Hub" or payload.destination == "ActMap" end
 	if kind == "StartNode" then
 		local nodeId = payload.nodeId
-		return (nodeId == "F1" or nodeId == "F2" or nodeId == "D1") and type(payload.playOptionId) == "string"
+		return Progression.nodeId(nodeId) and type(payload.playOptionId) == "string"
 	end
 	if kind == "PurchaseOffer" then return type(payload.offerId) == "string" and type(payload.quantity) == "number" end
 	if kind == "RecruitCompanion" then return type(payload.offerId) == "string" end
@@ -39,14 +46,28 @@ local function validAction(payload: Payload): boolean
 	return false
 end
 
-local function bind(store: Session.Store)
+local function bind(store: Session.Store, bridge: Progression.Bridge)
 	local function now(): number return workspace:GetServerTimeNow() end
 	local rng = Random.new()
 	local session = Session.new(store, os.time, function() return HttpService:GenerateGUID(false) end, now,
-		function() return rng:NextNumber() end)
+		function() return rng:NextNumber() end, bridge)
 	local inFlight: { [number]: boolean } = {}
 	local pendingClose: { [number]: boolean } = {}
 	local shuttingDown = false
+	local funnel: { [Player]: number } = {}
+
+	local function recordOnboarding(player: Player, through: number)
+		if player.Parent ~= Players then return end
+		-- Roblox counts each onboarding step once per user. The local cursor
+		-- also avoids re-emitting it from every refresh or battle reply.
+		for step = (funnel[player] or 0) + 1, through do
+			local ok = pcall(function()
+				AnalyticsService:LogOnboardingFunnelStepEvent(player, step, onboardingSteps[step])
+			end)
+			if not ok then break end
+			funnel[player] = step
+		end
+	end
 
 	local function close(userId: number)
 		if inFlight[userId] then
@@ -104,6 +125,7 @@ local function bind(store: Session.Store)
 			if not ok then
 				warn("Act battle QTE timeout failed", result)
 			elseif result and result.ok and player.Parent == Players then
+				recordOnboarding(player, session.onboarding(userId))
 				actUpdates:FireClient(player, result.snapshot)
 				if result.campaignSnapshot then updates:FireClient(player, result.campaignSnapshot) end
 			end
@@ -129,6 +151,7 @@ local function bind(store: Session.Store)
 				warn("Campaign request failed", name, result)
 				return errorResponse("SaveUnavailable", "The campaign request could not be completed.")
 			end
+			if result.ok then recordOnboarding(player, session.onboarding(id)) end
 			return result
 		end
 		fn.Parent = parent
@@ -182,7 +205,11 @@ local function bind(store: Session.Store)
 	actFolder.Parent = Shared
 	folder.Parent = Shared
 
+	local function joined(player: Player) recordOnboarding(player, 1) end
+	Players.PlayerAdded:Connect(joined)
+	for _, player in Players:GetPlayers() do joined(player) end
 	Players.PlayerRemoving:Connect(function(player)
+		funnel[player] = nil
 		timers[player.UserId] = nil
 		close(player.UserId)
 	end)
@@ -225,7 +252,7 @@ local function bind(store: Session.Store)
 		return withHubAction(userId, handler, { ok = false, code = "SaveUnavailable", message = "Wait for the current campaign request." })
 	end
 
-	return table.freeze({ isSafeHub = session.isSafeHub, withLineageAction = withLineageAction, withHubAction = withHubAction })
+	return table.freeze({ isSafeHub = session.isSafeHub, withLineageAction = withLineageAction, withHubAction = withHubAction, recordOnboarding = recordOnboarding })
 end
 
 return table.freeze({ bind = bind })

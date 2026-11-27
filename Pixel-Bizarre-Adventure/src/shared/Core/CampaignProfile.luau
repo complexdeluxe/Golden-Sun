@@ -9,6 +9,7 @@ local Remote = require("../Contracts/RemoteContract")
 local Save = require("../Contracts/SaveTypes")
 local Starter = require("../Data/CampaignStarter")
 local ActBattle = require("./CampaignActBattle")
+local Progression = require("./CampaignProgression")
 
 export type Profile = {
 	version: number,
@@ -18,6 +19,7 @@ export type Profile = {
 	gear: { [Inventory.GearSlot]: string },
 	belt: { [string]: string },
 	actOne: ActBattle.Progress,
+	progression: Progression.Saved,
 }
 export type Destination = "Hub" | "ActMap"
 
@@ -79,7 +81,7 @@ function Profile.decode(value: unknown): Profile?
 	if value == nil then
 		return {
 			version = 1, yen = Starter.StartingYen, stock = { ["training-wraps"] = 1, ["tonio-water"] = 2, ["med-kit"] = 1 },
-			gear = {}, belt = {}, actOne = { clears = {}, recruited = false },
+			gear = {}, belt = {}, actOne = { clears = {}, recruited = false }, progression = { clears = {} },
 		}
 	end
 	if type(value) ~= "table" then return nil end
@@ -90,7 +92,8 @@ function Profile.decode(value: unknown): Profile?
 	local appearance = Profile.appearance(raw.appearance)
 	if raw.appearance ~= nil and not appearance then return nil end
 	local actOne = ActBattle.decode(raw.actOne, raw.f1)
-	if not actOne then return nil end
+	local progression = Progression.decode(raw.progression)
+	if not actOne or not progression then return nil end
 	local stock: { [string]: number } = {}
 	for id, quantity in raw.stock :: { [string]: unknown } do
 		local item = Starter.Items[id]
@@ -117,13 +120,16 @@ function Profile.decode(value: unknown): Profile?
 		equipped[id] = true
 	end
 
-	return { version = 1, appearance = appearance, yen = raw.yen :: number, stock = stock, gear = gear, belt = belt, actOne = actOne }
+	return { version = 1, appearance = appearance, yen = raw.yen :: number, stock = stock, gear = gear, belt = belt, actOne = actOne, progression = progression }
 end
 
 function Profile.level(profile: Profile): number
 	local level = 1
-	for _ in profile.actOne.clears do level += 1 end
-	return level
+	for id in profile.actOne.clears do if id ~= "Castle" then level += 1 end end
+	for _, clears in profile.progression.clears do
+		for id in clears do if id ~= "Castle" then level += 1 end end
+	end
+	return math.min(50, level)
 end
 
 local function shop(profile: Profile): { Hub.ShopOffer }

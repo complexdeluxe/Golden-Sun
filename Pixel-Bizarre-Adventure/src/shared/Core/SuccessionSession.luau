@@ -363,6 +363,9 @@ local function new(store: Store, options: Options)
 			if award.mode ~= "FirstClear" or life.masteryEvents[key] or (mastery and mastery.marks >= Contract.MasteryTitleMarks) then
 				return false, nil, nil
 			end
+			for _, closed in state.closedLives do
+				if closed.masteryEvents[key] then return false, nil, nil end
+			end
 			if life.ledgerSettled then return false, "AlreadySettled", "This life already settled." end
 			life.masteryEvents = table.clone(life.masteryEvents)
 			life.masteryEvents[key] = true

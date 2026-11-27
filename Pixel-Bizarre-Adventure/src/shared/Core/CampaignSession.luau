@@ -8,6 +8,8 @@ local Progress = require("./TutorialProgress")
 local Profile = require("./CampaignProfile")
 local ActBattle = require("./CampaignActBattle")
 local Starter = require("../Data/CampaignStarter")
+local Map = require("../Contracts/MapTypes")
+local Progression = require("./CampaignProgression")
 
 export type Store = {
 	load: (number) -> (unknown, boolean),
@@ -25,6 +27,7 @@ type State = {
 	fight: ActBattle.Fight?,
 	finishedBattles: { [string]: Remote.ActBattleResponse },
 	settleAfter: number,
+	fullRoute: boolean,
 }
 
 local LEASE_SECONDS = 180
@@ -56,10 +59,50 @@ local function currentFight(state: State): ActBattle.Fight?
 	return if pending and fight and pending.battleId == fight.attempt.battleId then fight else nil
 end
 
+local function clearsFor(profile: Profile.Profile, act: number): { [Map.NodeId]: boolean }
+	return if act == 1 then profile.actOne.clears else profile.progression.clears[tostring(act)] or {}
+end
+
+local function routeMap(profile: Profile.Profile, origin: Save.Origin): Hub.Scene
+	local act = Progression.currentAct(profile.progression, profile.actOne.clears)
+	local part = Progression.part(origin, act)
+	local clears = clearsFor(profile, act)
+	local nextNode = #part.nodes
+	for i, node in part.nodes do
+		if not clears[node.id] then
+			nextNode = i
+			break
+		end
+	end
+	-- Keep each section small enough for the existing map layout.
+	local first = math.floor((nextNode - 1) / 3) * 3 + 1
+	local nodes: { Map.NodeView } = {}
+	for i = first, math.min(first + 2, #part.nodes) do
+		local node, previous = part.nodes[i], part.nodes[i - 1]
+		local cleared = clears[node.id] == true
+		local allowed = previous == nil or clears[previous.id] == true
+		local stage = if act == 1 and (node.id == "F1" or node.id == "F2" or node.id == "D1")
+			then Starter.ActOneRoutes[origin].stages[node.id :: Map.ActOneNodeId] else nil
+		local view: Map.NodeView = {
+			id = node.id, label = if stage then stage.label else node.location,
+			stageTag = if stage then stage.tag else node.stageTag or "Neutral",
+			stageAssetKey = if stage then stage.assetKey else node.stageAssetKey,
+			prerequisites = if i > first and previous then { previous.id } else {},
+			state = if cleared then "Cleared" else if allowed then "Available" else "Locked",
+			playOptions = if allowed then { ActBattle.option(node.id, cleared, act) } else {},
+		}
+		table.insert(nodes, view)
+	end
+	return { kind = "ActMap", map = { act = act, part = part.storyPart, nodes = nodes } }
+end
+
 local function scene(state: State): Hub.Scene
 	local fight = currentFight(state)
 	if fight then return { kind = "ActEncounter", encounter = ActBattle.encounter(fight) } end
-	return Profile.scene(state.record.profile, state.record.tutorial, state.destination)
+	local record = state.record
+	local base = Profile.scene(record.profile, record.tutorial, state.destination)
+	if state.fullRoute and base.kind == "ActMap" then return routeMap(record.profile, assert(record.tutorial.origin)) end
+	return base
 end
 
 local function snapshot(state: State): Hub.CampaignSnapshot
@@ -83,7 +126,8 @@ local function reject(code: Remote.CampaignErrorCode, message: string, state: St
 end
 
 local function new(
-	store: Store, clock: () -> number, makeId: () -> string, battleClock: (() -> number)?, random: (() -> number)?
+		store: Store, clock: () -> number, makeId: () -> string, battleClock: (() -> number)?, random: (() -> number)?,
+	bridge: Progression.Bridge?
 )
 	local sessions: { [number]: State } = {}
 	local battleNow = battleClock or clock
@@ -134,6 +178,7 @@ local function new(
 				campaign.gear = profile.gear
 				campaign.belt = profile.belt
 				campaign.actOne = profile.actOne
+				campaign.progression = profile.progression
 				raw.campaign = campaign
 			elseif raw.campaign == nil then
 				raw.campaign = record.profile
@@ -155,6 +200,22 @@ local function new(
 		state.record = record
 	end
 
+	local function drain(userId: number, state: State): boolean
+		local event = state.record.profile.progression.pending
+		if not event then return true end
+		if not bridge or not bridge.apply(userId, event) then return false end
+		local profile = table.clone(state.record.profile)
+		profile.progression = table.clone(profile.progression)
+		profile.progression.pending = nil
+		local saved, _, newer = transact(userId, state.sessionId, "Write", profile, state.record.writeRevision)
+		if saved then
+			replaceRecord(state, saved)
+			return true
+		end
+		if newer then replaceRecord(state, newer) end
+		return false
+	end
+
 	local function settle(userId: number, state: State, retry: boolean): Hub.CampaignSnapshot?
 		local fight = state.fight
 		if not fight then return nil end
@@ -167,9 +228,27 @@ local function new(
 			local progress = table.clone(profile.actOne)
 			progress.pending = nil
 			progress.result = result
-			if result.outcome == "Clear" and not progress.clears[result.attempt.nodeId] then
-				progress.clears = table.clone(progress.clears)
-				progress.clears[result.attempt.nodeId] = true
+			local attempt = result.attempt
+			local act, id = attempt.act or 1, attempt.nodeId
+			local first = attempt.mode == "FirstClear"
+			profile.progression = table.clone(profile.progression)
+			if result.outcome == "Clear" and first then
+				local clears = table.clone(clearsFor(profile, act))
+				clears[id] = true
+				if act == 1 then
+					progress.clears = clears
+				else
+					profile.progression.clears = table.clone(profile.progression.clears)
+					profile.progression.clears[tostring(act)] = clears
+				end
+			end
+			if bridge and attempt.lifeId and first
+				and (result.outcome == "Clear" or (id == "Castle" and result.outcome == "Defeat")) then
+				profile.progression.pending = {
+					lifeId = attempt.lifeId, battleId = attempt.battleId, act = act, part = Progression.part(fight.origin, act).storyPart,
+					nodeId = id, outcome = result.outcome :: "Clear" | "Defeat",
+					kitId = if fight.contributed then attempt.kitId else nil, years = Progression.years(id),
+				}
 			end
 			profile.actOne = progress
 			profile.yen += result.yen
@@ -189,6 +268,7 @@ local function new(
 			end
 			replaceRecord(state, record)
 		end
+		if not drain(userId, state) then return nil end
 		local campaign = snapshot(state)
 		state.finishedBattles[fight.attempt.battleId] = { ok = true, snapshot = ActBattle.snapshot(fight), campaignSnapshot = campaign }
 		state.fight = nil
@@ -205,7 +285,7 @@ local function new(
 			local opened: State = {
 				sessionId = id, revision = 1, record = record,
 				destination = if record.profile.actOne.pending then "ActMap" else "Hub",
-				finishedBattles = {}, settleAfter = 0,
+				finishedBattles = {}, settleAfter = 0, fullRoute = bridge ~= nil,
 			}
 			state = opened
 			sessions[userId] = opened
@@ -224,7 +304,9 @@ local function new(
 				replaceRecord(state, record)
 			end
 		end
-		return { ok = true, snapshot = settle(userId, state, true) or snapshot(state) }
+		local settled = settle(userId, state, true)
+		if not settled and not state.fight then drain(userId, state) end
+		return { ok = true, snapshot = settled or snapshot(state) }
 	end
 
 	local function submit(userId: number, request: Remote.CampaignActionRequest): Remote.CampaignResponse
@@ -238,6 +320,36 @@ local function new(
 			return reject("StaleRevision", "Campaign state changed. Try again.", state)
 		end
 
+		if state.record.profile.progression.pending and not drain(userId, state) then
+			return reject("SaveUnavailable", "Progression is still saving. Try again.", state)
+		end
+		if state.revision ~= request.expectedRevision then return reject("StaleRevision", "Refresh the committed progression.", state) end
+		local entryScene = scene(state)
+		local enteringMap = request.kind == "Navigate" and request.destination == "ActMap"
+			and (entryScene.kind == "Hub" or entryScene.kind == "ActResults" or entryScene.kind == "ActMap")
+		local life: Progression.Life? = nil
+		if bridge and (enteringMap or (request.kind == "StartNode" and entryScene.kind == "ActMap")) then
+			life = bridge.life(userId, request.kind == "Navigate")
+			if not life then return reject("SaveUnavailable", "Could not open the lineage ledger.", state) end
+			if life.settled then return reject("IllegalAction", "This life has ended. Begin the next life at the Hub.", state) end
+			local old = state.record.profile
+			if old.progression.lifeId ~= life.id then
+				local profile = table.clone(old)
+				profile.progression = table.clone(old.progression)
+				profile.progression.lifeId = life.id
+				if old.progression.lifeId then
+					profile.actOne = { clears = {}, recruited = false }
+					profile.progression.clears = {}
+				end
+				local bound, code, newer = transact(userId, state.sessionId, "Write", profile, state.record.writeRevision)
+				if not bound then
+					if newer then replaceRecord(state, newer) end
+					return reject(code, "Could not bind this campaign to the current life.", state)
+				end
+				replaceRecord(state, bound)
+				if request.kind == "StartNode" then return reject("StaleRevision", "Campaign life changed. Choose the stage again.", state) end
+			end
+		end
 		local currentScene = scene(state)
 		local updated: Profile.Profile? = nil
 		if request.kind == "Navigate" then
@@ -255,6 +367,8 @@ local function new(
 		elseif request.kind == "StartNode" then
 			if currentScene.kind ~= "ActMap" then return reject("IllegalAction", "Open the Act Map first.", state) end
 			local profile = state.record.profile
+			local finalAttempt = request.nodeId == "Castle" and life ~= nil and life.isFinalAttempt
+				and not clearsFor(profile, currentScene.map.act).Castle
 			local option
 			for _, node in currentScene.map.nodes do
 				if node.id == request.nodeId then
@@ -263,7 +377,11 @@ local function new(
 				end
 			end
 			if not option then return reject("NodeLocked", "Clear the previous node first.", state) end
-			if request.playOptionId ~= option.id then return reject("IllegalAction", "Choose the available play option.", state) end
+			local optionId = if finalAttempt then option.id .. ":confirm" else option.id
+			if request.playOptionId ~= optionId then
+				return reject("IllegalAction", if finalAttempt then "Final attempt: confirm that defeat ends this generation."
+					else "Choose the available play option.", state)
+			end
 			local fight = state.fight
 			if fight and fight.attempt.nodeId ~= request.nodeId then
 				-- A prior StartNode may have committed even if its save reply was lost.
@@ -280,7 +398,12 @@ local function new(
 					local itemId = Starter.Items[entryId].beltItemId
 					if itemId then stock[itemId] = profile.stock[entryId] or 0 end
 				end
-				local attempt: ActBattle.Attempt = { battleId = makeId(), nodeId = request.nodeId, mode = option.mode }
+				local origin = assert(state.record.tutorial.origin)
+				local attempt: ActBattle.Attempt = {
+					battleId = makeId(), nodeId = request.nodeId, mode = option.mode,
+					act = if bridge then currentScene.map.act else nil, lifeId = if life then life.id else nil,
+					kitId = if bridge then (if origin == "Part1_Hamon" then "hamon" else "stand_origin") else nil,
+				}
 				fight = ActBattle.new(attempt, assert(state.record.tutorial.origin), Profile.level(profile), stock,
 					if profile.gear.Weapon == "training-wraps" then 2 else 0,
 					if profile.gear.Head == "brimmed-cap" then 2 else 0, profile.actOne.recruited, roll, battleNow)
@@ -374,6 +497,7 @@ local function new(
 		local record, code = transact(userId, state.sessionId, "Renew")
 		if record then
 			replaceRecord(state, record)
+			if state.fight then settle(userId, state, true) else drain(userId, state) end
 		elseif code == "ProfileLocked" then
 			sessions[userId] = nil
 		end
@@ -387,6 +511,18 @@ local function new(
 		transact(userId, state.sessionId, "Release")
 	end
 
+		local function onboarding(userId: number): number
+		local state = sessions[userId]
+		if not state or not state.record.profile.appearance then return 1 end
+		local tutorial, progress = state.record.tutorial, state.record.profile.actOne
+		if not tutorial.tutorialCompleted then return 2 end
+		if not tutorial.origin then return 4 end
+		if progress.recruited then return 9 end
+		if progress.clears.D1 then return 8 end
+		if progress.clears.F1 then return 7 end
+		return if scene(state).kind == "Hub" then 6 else 5
+	end
+
 	local function isSafeHub(userId: number): boolean
 		local state = sessions[userId]
 		local lease = if state then state.record.lease else nil
@@ -396,7 +532,7 @@ local function new(
 
 	return table.freeze({
 		get = get, submit = submit, renew = renew, close = close,
-		isSafeHub = isSafeHub,
+		isSafeHub = isSafeHub, onboarding = onboarding,
 		battle = battle, nextCheck = nextCheck, expireChecks = expireChecks,
 	})
 end

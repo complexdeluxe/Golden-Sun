@@ -4,7 +4,8 @@ local AssetManifest = require("./AssetManifest")
 local Combat = require("./CombatTypes")
 local Inventory = require("./InventoryTypes")
 
-export type NodeId = "F1" | "F2" | "D1"
+export type ActOneNodeId = "F1" | "F2" | "D1"
+export type NodeId = ActOneNodeId | "F3" | "F4" | "F5" | "F6" | "F7" | "D2" | "D3" | "Castle"
 export type NodeState = "Locked" | "Available" | "Cleared"
 export type RunMode = "FirstClear" | "Replay"
 export type StageTag = "Neutral" | "Night" | "WaterRain" | "Sunlit"
@@ -64,6 +65,7 @@ export type ItemReward = {
 }
 
 export type EncounterResult = {
+	act: number?,
 	encounterId: EncounterId,
 	nodeId: NodeId,
 	mode: RunMode,
@@ -83,6 +85,6 @@ export type CompanionView =
 	| (CompanionDisplay & { state: "Offered", offerId: string, legality: Combat.ActionLegality })
 	| (CompanionDisplay & { state: "Recruited" })
 
-local nodeOrder: { NodeId } = { "F1", "F2", "D1" }
+local nodeOrder: { ActOneNodeId } = { "F1", "F2", "D1" }
 
 return table.freeze({ NodeOrder = table.freeze(nodeOrder) })

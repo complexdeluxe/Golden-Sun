@@ -13,7 +13,7 @@ type Recruit = {
 }
 
 type Route = {
-	waves: { [Map.NodeId]: { Battle.ActOpponent } },
+	waves: { [Map.ActOneNodeId]: { Battle.ActOpponent } },
 	recruit: Recruit,
 }
 
@@ -52,6 +52,6 @@ local routes: { [Save.Origin]: Route } = {
 	},
 }
 
-local firstClearYen: { [Map.NodeId]: number } = { F1 = 12, F2 = 18, D1 = 30 }
+local firstClearYen: { [Map.ActOneNodeId]: number } = { F1 = 12, F2 = 18, D1 = 30 }
 
 return table.freeze({ Routes = routes, FirstClearYen = firstClearYen })

@@ -735,6 +735,8 @@ function Battle.new(id: string, request: Remote.StartSandboxRequest, random: () 
 end
 
 export type ActSetup = {
+	act: number?,
+	stageTag: ("Night" | "Neutral")?,
 	level: number,
 	opponent: ActOpponent,
 	stock: { [Combat.BeltItemId]: number },
@@ -743,8 +745,8 @@ export type ActSetup = {
 	companion: ActCompanion?,
 }
 
-local function actEnemy(opponent: ActOpponent, level: number): Actor
-	local enemy = newActor(opponent.id, opponent.label, level, 1)
+local function actEnemy(opponent: ActOpponent, level: number, act: number): Actor
+	local enemy = newActor(opponent.id, opponent.label, level, act)
 	local hp = opponent.hp or 46
 	enemy.view.hp, enemy.view.maxHp = hp, hp
 	enemy.view.spriteKey = nil
@@ -753,15 +755,16 @@ local function actEnemy(opponent: ActOpponent, level: number): Actor
 end
 
 function Battle.newActEncounter(id: string, setup: ActSetup, random: () -> number, clock: () -> number): State
-	local player = newActor(PLAYER, "You", setup.level, 1)
+		local act = setup.act or 1
+	local player = newActor(PLAYER, "You", setup.level, act)
 	player.physical += setup.physicalBonus
 	player.view.power = math.max(player.physical, player.special)
 	player.focus = setup.focus
 	player.view.precisionPercent = Math.focusPrecision(player.focus)
 	local opponent = setup.opponent
-	local enemy = actEnemy(opponent, setup.level)
+	local enemy = actEnemy(opponent, setup.level, act)
 	local state: State = {
-		id = id, level = setup.level, act = 1, stage = "Neutral", mode = "Manual", revision = 1, round = 1,
+		id = id, level = setup.level, act = act, stage = setup.stageTag or "Neutral", mode = "Manual", revision = 1, round = 1,
 		enemyId = opponent.id, actOpponent = opponent, actors = { [PLAYER] = player, [opponent.id] = enemy },
 		roster = { PLAYER, opponent.id }, tieOrder = { [PLAYER] = 1, [opponent.id] = 2 },
 		queue = {}, queueIndex = 0, outcome = "InProgress", log = {}, exposed = false,
@@ -769,7 +772,7 @@ function Battle.newActEncounter(id: string, setup: ActSetup, random: () -> numbe
 		medKit = false, stock = table.clone(setup.stock), tactic = "Aggressive", redirects = 0, assistUsed = false,
 	}
 	if setup.companion then
-		local companion = newActor(COMPANION, setup.companion.label, setup.level, 1)
+		local companion = newActor(COMPANION, setup.companion.label, setup.level, act)
 		companion.view.spriteKey = setup.companion.spriteKey
 		state.actors[COMPANION] = companion
 		table.insert(state.roster, 2, COMPANION)
@@ -786,7 +789,7 @@ function Battle.startNextWave(state: State, opponent: ActOpponent, waveIndex: nu
 	state.actors[previousEnemy] = nil
 	state.enemyId = opponent.id
 	state.actOpponent = opponent
-	state.actors[opponent.id] = actEnemy(opponent, state.level)
+	state.actors[opponent.id] = actEnemy(opponent, state.level, state.act)
 	state.roster[#state.roster] = opponent.id
 	state.tieOrder[previousEnemy] = nil
 	state.tieOrder[opponent.id] = 2

@@ -1,7 +1,7 @@
 --!strict
 
 local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
+
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 
 local Remote = require("@game/ReplicatedStorage/Shared/Contracts/RemoteContract")
@@ -10,16 +10,11 @@ local Session = require("@game/ReplicatedStorage/Shared/Core/SuccessionSession")
 type Response = Remote.LineageSnapshotResponse | Remote.LineageActionResponse
 type Handler = (number, unknown) -> Response
 type CampaignAccess = {
-	read isSafeHub: (number) -> boolean,
+
 	read withLineageAction: (number, () -> Remote.LineageActionResponse) -> Remote.LineageActionResponse,
 }
 
-local function bind(store: Session.Store, campaign: CampaignAccess)
-	local session = Session.new(store, {
-		clock = os.time,
-		makeId = function() return HttpService:GenerateGUID(false) end,
-		isSafeHub = campaign.isSafeHub,
-	})
+local function bind(session: typeof(Session.new((nil :: any), (nil :: any))), campaign: CampaignAccess)
 	local routes = Remote.Lineage
 	local folder = Instance.new("Folder")
 	folder.Name = routes.FolderName

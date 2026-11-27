@@ -2,6 +2,7 @@
 
 local Campaign = require("./CampaignProfile")
 local Tutorial = require("./TutorialProgress")
+local Progression = require("./CampaignProgression")
 local Contract = require("../Contracts/Phase4EconomyTypes")
 local Item = require("../Contracts/ItemInstanceTypes")
 local Data = require("../Data/Phase4EconomyData")
@@ -58,9 +59,12 @@ local function decode(value: unknown): Record?
 	local campaign = Campaign.decode(raw.campaign)
 	local campaignRevision = if raw.campaignWriteRevision == nil then 0 else raw.campaignWriteRevision
 	if not campaign or not integer(campaignRevision, 0, LIMIT) or campaign.yen > LIMIT then return nil end
+	local campaignAct = Progression.currentAct(campaign.progression, campaign.actOne.clears)
 	local stored = raw.phase4
 	if stored == nil then
-		return { raw = raw, phase4 = empty(), campaign = campaign, campaignRevision = campaignRevision :: number }
+		local phase4 = empty()
+		phase4.act = campaignAct
+		return { raw = raw, phase4 = phase4, campaign = campaign, campaignRevision = campaignRevision :: number }
 	end
 	if type(stored) ~= "table" then return nil end
 	local fields = stored :: { [string]: unknown }
@@ -80,7 +84,12 @@ local function decode(value: unknown): Record?
 		if type(leaseFields.sessionId) ~= "string" or not integer(leaseFields.expiresAt, 0, LIMIT) then return nil end
 	end
 	-- Collections are written by trusted profile/grant code. Actions never supply these records.
-	return { raw = raw, phase4 = stored :: Saved, campaign = campaign, campaignRevision = campaignRevision :: number }
+		local phase4 = stored :: Saved
+	if phase4.act < campaignAct then
+		phase4 = table.clone(phase4)
+		phase4.act = campaignAct
+	end
+	return { raw = raw, phase4 = phase4, campaign = campaign, campaignRevision = campaignRevision :: number }
 end
 
 local function encode(record: Record, phase4: Saved, yen: number): { [string]: unknown }

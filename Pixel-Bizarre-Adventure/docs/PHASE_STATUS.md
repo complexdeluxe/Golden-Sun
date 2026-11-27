@@ -1,15 +1,16 @@
 # Phase status
 
-**Phases 0–6.1 Backend Complete.** Live campaign progression and the Phase 4–6 client screens are the remaining launch integration work.
+**Phases 0–6.1 Backend Complete.** The live campaign progression bridge and onboarding funnel are wired. Phase 4–6 client screens and Studio playtesting are next.
 
-- Verification baseline: Rojo build, shared Luau analysis, server compilation, and 15/15 Lune suites passed. On Windows, run `scripts/check.ps1` for the build, analysis, and suites.
+- Verification baseline: Rojo build, shared Luau analysis, server compilation, and 16/16 Lune suites passed. On Windows, run `scripts/check.ps1` for the build, analysis, and suites.
 - **DataStore restart PASS** in the isolated Studio place on November 26, 2026. Both origins restored their saved state in a fresh server. [Restart evidence](PHASE_ARCHIVE_0_3.md#isolated-datastore-restart)
-- Activity server bindings are live in the project. Auto-Battle resumes on rejoin and pays completed five-minute ticks. Expedition claims settle once per mission. The live campaign still needs the full-Act clear and ticket award hooks.
+- Activity server bindings are live in the project. Auto-Battle resumes on rejoin and pays completed five-minute ticks. Expedition claims settle once per mission. First-time Dungeon and Castle clears award Expedition Tickets within the account cap. A first Castle clear unlocks Post-Act Auto-Battle for its Act.
 
-## Next Ticket — Codex
+## Live progression and onboarding
 
-- Integrate live Acts 1–5 progression. Wire authoritative first-clear settlement to Act unlocks, the lineage ledger, and eligible Expedition Ticket awards. Connect Castle wipes, aging, mastery, and heirloom grants as their encounters come online. Verify both origins and keep replay rewards separate from first clears.
-- Add a server-side `AnalyticsService` Onboarding Funnel for Join → Tutorial complete → Origin chosen → Hub → F1 clear → F2 clear → D1 clear. Record steps from committed progression and verify that reloads and replays do not advance the funnel twice.
+- The Option 1 routes use the existing Act 1 encounters first, then progress through all five Parts. The current map displays one section at a time. New encounters use the shared battle engine with catalog opponents, default Dungeon approaches, and two-phase Castles. Bespoke boss behaviors and a full replay selector remain follow-up work.
+- First-clear settlement queues durable age, Echo, mastery, heirloom, and ticket updates. A full-party wipe at an uncleared Castle consumes one recovery. The existing client needs a final-attempt confirmation UI to submit the Castle play option with the `:confirm` suffix after five wipes.
+- The Roblox onboarding funnel has nine server steps, from Joined to CompanionRecruited. Delivery is best effort. Verify analytics in a published test experience, where Roblox accepts funnel events.
 
 ## Next Ticket — Claude
 

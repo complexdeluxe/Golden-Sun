@@ -7,8 +7,11 @@ local Remote = require("../Contracts/RemoteContract")
 local Save = require("../Contracts/SaveTypes")
 local Starter = require("../Data/CampaignStarter")
 local Encounters = require("../Data/ActOneEncounters")
+local Progression = require("./CampaignProgression")
+local Economy = require("./Phase4Economy")
+local Assets = require("../Contracts/AssetManifest")
 
-export type Attempt = { battleId: string, nodeId: Map.NodeId, mode: Map.RunMode }
+export type Attempt = { battleId: string, nodeId: Map.NodeId, mode: Map.RunMode, act: number?, lifeId: string?, kitId: string? }
 type ResultOutcome = "Clear" | "Defeat" | "Retreat"
 export type SavedResult = {
 	attempt: Attempt,
@@ -25,6 +28,9 @@ export type Fight = {
 	waves: { Battle.ActOpponent },
 	waveIndex: number,
 	retreated: boolean,
+	contributed: boolean,
+	stageTag: Map.StageTag,
+	stageAssetKey: Assets.AssetKey?,
 }
 export type Command =
 	{ kind: "Get", request: Remote.GetActBattleSnapshotRequest }
@@ -41,8 +47,11 @@ local function decodeAttempt(value: unknown, legacy: boolean): Attempt?
 	local id, mode = raw.battleId, raw.mode
 	local nodeId = if legacy then "F1" else raw.nodeId
 	if type(id) ~= "string" or id == "" or (mode ~= "FirstClear" and mode ~= "Replay") then return nil end
-	if nodeId ~= "F1" and nodeId ~= "F2" and nodeId ~= "D1" then return nil end
-	return { battleId = id, nodeId = nodeId, mode = mode }
+	local act = raw.act
+	if not Progression.nodeId(nodeId) or (act ~= nil and (type(act) ~= "number" or act % 1 ~= 0 or act < 1 or act > 5))
+		or (raw.lifeId ~= nil and type(raw.lifeId) ~= "string") or (raw.kitId ~= nil and type(raw.kitId) ~= "string") then return nil end
+	return { battleId = id, nodeId = nodeId :: Map.NodeId, mode = mode, act = act :: number?,
+		lifeId = raw.lifeId :: string?, kitId = raw.kitId :: string? }
 end
 
 function ActBattle.decode(value: unknown, legacyF1: unknown): Progress?
@@ -59,7 +68,7 @@ function ActBattle.decode(value: unknown, legacyF1: unknown): Progress?
 	else
 		if type(raw.clears) ~= "table" or type(raw.recruited) ~= "boolean" then return nil end
 		for key, cleared in raw.clears :: { [string]: unknown } do
-			if (key ~= "F1" and key ~= "F2" and key ~= "D1") or cleared ~= true then return nil end
+			if (not Progression.nodeId(key)) or cleared ~= true then return nil end
 			clears[key :: Map.NodeId] = true
 		end
 		recruited = raw.recruited
@@ -81,13 +90,13 @@ function ActBattle.decode(value: unknown, legacyF1: unknown): Progress?
 	return { clears = clears, recruited = recruited, pending = pending, result = result }
 end
 
-function ActBattle.option(nodeId: Map.NodeId, cleared: boolean): Map.PlayOption
+function ActBattle.option(nodeId: Map.NodeId, cleared: boolean, act: number?): Map.PlayOption
 	return {
 		id = nodeId .. (if cleared then ":replay" else ":first"),
 		label = if cleared then "Replay" else "Set out",
 		mode = if cleared then "Replay" else "FirstClear",
-		tier = 1,
-		levelsOnClear = if cleared then 0 else 1,
+		tier = act or 1,
+		levelsOnClear = if cleared or nodeId == "Castle" then 0 else 1,
 		legality = { canUse = true },
 	}
 end
@@ -115,13 +124,14 @@ function ActBattle.encounter(fight: Fight): Map.ActiveEncounter
 	local attempt = fight.attempt
 	return {
 		encounterId = encounterId(attempt), battleId = attempt.battleId, nodeId = attempt.nodeId, mode = attempt.mode,
-		stageTag = Starter.ActOneRoutes[fight.origin].stages[attempt.nodeId].tag,
+		stageTag = fight.stageTag,
 	}
 end
 
 function ActBattle.resultView(result: SavedResult): Map.EncounterResult
 	return {
 		encounterId = encounterId(result.attempt), nodeId = result.attempt.nodeId, mode = result.attempt.mode, outcome = result.outcome,
+				act = result.attempt.act or 1,
 		rewards = { yen = result.yen, levels = result.levels, items = {} },
 	}
 end
@@ -131,13 +141,46 @@ function ActBattle.new(
 	physicalBonus: number, focus: number, recruited: boolean, random: () -> number, clock: () -> number
 ): Fight
 	local route = Encounters.Routes[origin]
-	local waves = route.waves[attempt.nodeId]
-	-- The recruit is the D1 finale opponent. On a replay they take that side of the spar.
-	local companion = if recruited and attempt.nodeId ~= "D1" then route.recruit else nil
+	local act, id = attempt.act or 1, attempt.nodeId
+	local node = Progression.node(origin, act, id)
+	local legacy = act == 1 and (id == "F1" or id == "F2" or id == "D1")
+	local waves: { Battle.ActOpponent } = {}
+	local stageTag: Map.StageTag = node.stageTag or "Neutral"
+	local stageAssetKey = node.stageAssetKey
+	if legacy then
+		local firstId = id :: Map.ActOneNodeId
+		waves = route.waves[firstId]
+		local stage = Starter.ActOneRoutes[origin].stages[firstId]
+		stageTag, stageAssetKey = stage.tag, stage.assetKey
+	else
+		local function opponent(key: string, name: string, hp: number, heavy: string, multiplier: number): Battle.ActOpponent
+			return {
+				id = key, label = name, hp = hp, jabLabel = "Quick Strike", heavyLabel = heavy,
+				jabPower = 8 + 2 * act, heavyPower = math.floor((14 + 3 * act) * multiplier),
+			}
+		end
+		local key = node.opponentId or ("enemy_" .. id)
+		if node.kind == "Dungeon" then
+			local approach = node.approaches[1]
+			table.insert(waves, opponent(approach.id, approach.opponent, 28 + 9 * act, "Heavy Strike", 1))
+		end
+		if node.kind == "Castle" then
+			for index, phase in node.phases do
+				local move = phase.moves[#phase.moves]
+				table.insert(waves, opponent(key .. "_" .. index, node.opponent, 45 + 15 * act, move.name, move.multiplier or 1))
+			end
+		else
+			table.insert(waves, opponent(key, node.opponent, 36 + 12 * act, "Heavy Strike", 1))
+		end
+	end
+	-- The Act 1 recruit is the D1 finale opponent.
+	local companion = if recruited and not (legacy and id == "D1") then route.recruit else nil
 	return {
-		attempt = attempt, origin = origin, startingStock = stock, retreated = false, waves = waves, waveIndex = 1,
+		attempt = attempt, origin = origin, startingStock = stock, retreated = false, contributed = false, waves = waves, waveIndex = 1,
+		stageTag = stageTag, stageAssetKey = stageAssetKey,
 		battle = Battle.newActEncounter(attempt.battleId, {
 			level = level, opponent = waves[1], stock = stock, physicalBonus = physicalBonus, focus = focus, companion = companion,
+			act = act, stageTag = if not legacy and stageTag == "Night" then "Night" else nil,
 		}, random, clock),
 	}
 end
@@ -145,12 +188,11 @@ end
 function ActBattle.snapshot(fight: Fight): Map.ActBattleSnapshot
 	local battle = fight.battle
 	local snapshot = Battle.hudSnapshot(battle) :: Map.ActBattleSnapshot
-	local stage = Starter.ActOneRoutes[fight.origin].stages[fight.attempt.nodeId]
 	snapshot.encounterId = encounterId(fight.attempt)
-	snapshot.stageTag, snapshot.stageAssetKey = stage.tag, stage.assetKey
+	snapshot.stageTag, snapshot.stageAssetKey = fight.stageTag, fight.stageAssetKey
 	snapshot.waveIndex, snapshot.waveCount = fight.waveIndex, #fight.waves
 	snapshot.outcome = if fight.retreated then "Retreated" else battle.outcome
-	snapshot.retreatLegality = if fight.attempt.nodeId == "D1"
+	snapshot.retreatLegality = if fight.attempt.nodeId:sub(1, 1) ~= "F"
 		then { canUse = false :: false, disabledReason = "Retreat is available in Flag fights." } else Battle.retreatLegality(battle)
 	return snapshot
 end
@@ -159,16 +201,34 @@ function ActBattle.result(fight: Fight): SavedResult?
 	local outcome = fight.battle.outcome
 	if not fight.retreated and outcome == "InProgress" then return nil end
 	local first = fight.attempt.mode == "FirstClear"
-	local yen = Encounters.FirstClearYen[fight.attempt.nodeId]
+	local act, id = fight.attempt.act or 1, fight.attempt.nodeId
+	local yen, levels = 0, 0
+	if outcome == "Victory" then
+		if act == 1 and (id == "F1" or id == "F2" or id == "D1") then
+			local firstYen = Encounters.FirstClearYen[id :: Map.ActOneNodeId]
+			yen, levels = if first then firstYen else math.floor(firstYen / 2), if first then 1 else 0
+		else
+			local node = Progression.node(fight.origin, act, id)
+			local rewards = Economy.computeNodeRewards(act, node.kind, id, fight.attempt.mode)
+			yen, levels = rewards.yen, rewards.xpLevels
+		end
+	end
 	return {
 		attempt = fight.attempt,
 		outcome = if fight.retreated then "Retreat" elseif outcome == "Victory" then "Clear" else "Defeat",
-		yen = if outcome == "Victory" then (if first then yen else math.floor(yen / 2)) else 0,
-		levels = if outcome == "Victory" and first then 1 else 0,
+		yen = yen, levels = levels,
 	}
 end
 
 local function advanceWave(fight: Fight)
+	if not fight.contributed then
+		for _, entry in fight.battle.log do
+			if entry.kind == "Damage" and entry.actorId == "player" and entry.targetId ~= "player" and (entry.amount or 0) > 0 then
+				fight.contributed = true
+				break
+			end
+		end
+	end
 	if fight.battle.outcome == "Victory" and fight.waveIndex < #fight.waves then
 		fight.waveIndex += 1
 		Battle.startNextWave(fight.battle, fight.waves[fight.waveIndex], fight.waveIndex)
@@ -184,7 +244,7 @@ function ActBattle.apply(fight: Fight, command: Command): Remote.ActBattleRespon
 		elseif command.kind == "Secondary" then
 			local request = command.request
 			if request.kind == "Retreat" then
-				if fight.attempt.nodeId == "D1" then
+				if fight.attempt.nodeId:sub(1, 1) ~= "F" then
 					return { ok = false, code = "IllegalAction", message = "Retreat is available in Flag fights.", snapshot = ActBattle.snapshot(fight) }
 				end
 				reply, fight.retreated = Battle.attemptFlagRetreat(battle, request, request.actorId)

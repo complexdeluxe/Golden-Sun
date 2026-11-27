@@ -19,7 +19,7 @@ local function invalid(message: string): Remote.Rejected
 	return { ok = false, code = "InvalidRequest", message = message }
 end
 
-local function bind(store: Session.Store)
+local function bind(store: Session.Store, recordOnboarding: (Player, number) -> ())
 	local session = Session.new(store, function()
 		return HttpService:GenerateGUID(false)
 	end)
@@ -49,6 +49,11 @@ local function bind(store: Session.Store)
 			if not ok then
 				warn("Tutorial request failed", name, result)
 				return { ok = false, code = "NotReady", message = "The tutorial request failed. Try again." }
+			end
+			if result.ok then
+				if result.profile.origin then recordOnboarding(player, 5)
+				elseif result.profile.tutorialCompleted then recordOnboarding(player, 4)
+				elseif name == Remote.StartTutorial.name then recordOnboarding(player, 3) end
 			end
 			return result
 		end

@@ -1,7 +1,7 @@
 --!strict
 
 local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
+
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 
 local Contract = require("@game/ReplicatedStorage/Shared/Contracts/ActivityTypes")
@@ -11,7 +11,7 @@ local Session = require("@game/ReplicatedStorage/Shared/Core/ActivitySession")
 type Response = Remote.ActivitySnapshotResponse | Remote.ActivityActionResponse
 type Handler = (number, unknown) -> Response
 type CampaignAccess = {
-	read isSafeHub: (number) -> boolean,
+
 	read withHubAction: <T>(number, () -> T, T) -> T,
 }
 type Schedule = {
@@ -23,12 +23,7 @@ type Schedule = {
 
 local HEARTBEAT_SECONDS = 30
 
-local function bind(store: Session.Store, campaign: CampaignAccess)
-	local session = Session.new(store, {
-		clock = os.time,
-		makeId = function() return HttpService:GenerateGUID(false) end,
-		isSafeHub = campaign.isSafeHub,
-	})
+local function bind(session: typeof(Session.new((nil :: any), (nil :: any))), campaign: CampaignAccess)
 	local routes = Remote.Activity
 	local folder = Instance.new("Folder")
 	folder.Name = routes.FolderName

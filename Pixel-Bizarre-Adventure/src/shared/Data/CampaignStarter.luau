@@ -68,7 +68,7 @@ local items: { [string]: Item } = {
 }
 
 type Stage = { label: string, tag: Map.StageTag, assetKey: Assets.AssetKey }
-type ActOneRoute = { part: number, stages: { [Map.NodeId]: Stage } }
+type ActOneRoute = { part: number, stages: { [Map.ActOneNodeId]: Stage } }
 
 local actOneRoutes: { [Save.Origin]: ActOneRoute } = {
 	Part1_Hamon = {
