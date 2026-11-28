@@ -236,6 +236,19 @@ function ActivitiesScreen.open(parent: Instance, deps: Deps): Activities
 		end
 	end
 
+	-- Why an action was refused, in the player's terms. The server's scheduler
+	-- pays due ticks on its own, so a manual CLAIM can arrive after it.
+	local function refusal(action: Contract.Action?, result: ActionClient.Result): string
+		local snapshot = client:snapshot() :: Snapshot?
+		if action and action.kind == "ClaimAutoBattle" and snapshot and snapshot.autoBattle.pendingTicks == 0
+			and (result.code == "StaleRevision" or result.code == "NoPendingTicks") then
+			return "Ticks already paid automatically."
+		elseif result.code == "StaleRevision" then
+			return "Activities changed. Check and try again."
+		end
+		return result.message or "Activities refused it."
+	end
+
 	-- Requests ----------------------------------------------------------------------
 
 	local function retry()
@@ -245,6 +258,7 @@ function ActivitiesScreen.open(parent: Instance, deps: Deps): Activities
 		busy = true
 		setStatus("RETRYING LAST ACTION...")
 		render()
+		local kept = client:pendingAction() :: Contract.Action?
 		local result = client:retryPending()
 		if not alive then
 			return
@@ -266,8 +280,8 @@ function ActivitiesScreen.open(parent: Instance, deps: Deps): Activities
 			setStatus("STILL UNCONFIRMED. RETRY AGAIN.", Colors.Hp)
 			deps.toast(result.message or "Still unconfirmed.")
 		else
-			local message = result.message or "Activities refused it."
-			setStatus(string.upper("Last action not applied: " .. message), Colors.Hp)
+			local message = refusal(kept, result)
+			setStatus(string.upper("Not applied: " .. message), Colors.Hp)
 			deps.toast(message)
 		end
 		render()
@@ -297,12 +311,7 @@ function ActivitiesScreen.open(parent: Instance, deps: Deps): Activities
 			deps.toast(text)
 		else
 			local waiting = pending()
-			local message = result.message or "Activities refused it."
-			if result.uncertain and waiting then
-				message = `UNCONFIRMED: {waiting}.`
-			elseif result.code == "StaleRevision" then
-				message = "Activities changed. Check and try again."
-			end
+			local message = if result.uncertain and waiting then `UNCONFIRMED: {waiting}.` else refusal(action, result)
 			setStatus(string.upper(message), Colors.Hp)
 			deps.toast(message)
 		end
