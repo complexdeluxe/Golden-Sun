@@ -110,7 +110,7 @@ function HallScreen.open(parent: Instance, deps: Deps): Hall
 	local earnedLine = PixelUi.label(life, "Earned", 4, 79, 152, 9, "", Colors.TextDim)
 	local finalBox = PixelUi.frame(life, "FinalAttempt", 2, 92, 154, 32, Colors.HpBack)
 	PixelUi.label(finalBox, "Title", 3, 2, 148, 9, "FINAL ATTEMPT", Colors.Hp)
-	wrapped(PixelUi.label(finalBox, "Body", 3, 11, 148, 20, "A CASTLE DEFEAT ENDS THIS GENERATION. YOU CONFIRM AT THE CASTLE.", Colors.Text))
+	wrapped(PixelUi.label(finalBox, "Body", 3, 11, 148, 20, "A CASTLE DEFEAT ENDS THIS GENERATION.", Colors.Text))
 
 	PixelUi.frame(life, "Rule", 160, 0, 1, BODY_H, Palette.Purple)
 	PixelUi.label(life, "TorchTitle", 166, 0, 150, 10, "PASS THE TORCH", Palette.Gold)
