@@ -53,7 +53,7 @@ function PendingControl.attach(bar: Frame, client: Phase4Client.Client, onPress:
 		if result.ok and receipt then
 			return "RECOVERED: " .. StationFormat.receipt(receipt), Colors.Active
 		elseif result.uncertain then
-			return "STILL UNCONFIRMED. RETRY AGAIN ABOVE.", Colors.Hp
+			return "STILL UNCONFIRMED. RETRY AGAIN.", Colors.Hp
 		end
 		return string.upper("Last action not applied: " .. (result.message or "the server refused it.")), Colors.Hp
 	end
@@ -63,7 +63,7 @@ end
 
 -- The status line while an action is unconfirmed.
 function PendingControl.waitingText(name: string): string
-	return `UNCONFIRMED: {name}. RETRY IT ABOVE.`
+	return `UNCONFIRMED: {name}.`
 end
 
 return PendingControl
