@@ -25,6 +25,7 @@ local Colors = PixelUi.Colors
 local Palette = CampaignUi.Colors
 
 local NODE_SIZE = 24
+local LABEL_W = 96
 local OPTION_ROWS = 3
 -- Top-left corner of each node on the map, in native px.
 local NODE_POSITIONS: { [string]: Vector2 } = {
@@ -188,7 +189,12 @@ function ActMapScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 		local at = position(node.id, index)
 		local outline, fill = PixelUi.box(nodesLayer, node.id, at.X, at.Y, NODE_SIZE, NODE_SIZE, Palette.Locked)
 		local mark = PixelUi.label(fill, "Mark", 0, 0, NODE_SIZE - 2, NODE_SIZE - 2, node.id, Colors.Text, Enum.TextXAlignment.Center)
-		local label = PixelUi.label(nodesLayer, `{node.id}Label`, at.X - 28, at.Y + NODE_SIZE + 1, NODE_SIZE + 56, 9, "", Colors.Text, Enum.TextXAlignment.Center)
+		-- Long names ("OGRE STREET HIDEOUT - CLEAR") wrap to a second line and
+		-- the label stays inside the map instead of running off its edge.
+		local labelX = math.clamp(at.X + NODE_SIZE / 2 - LABEL_W / 2, 2, 318 - LABEL_W)
+		local label = PixelUi.label(nodesLayer, `{node.id}Label`, labelX, at.Y + NODE_SIZE + 1, LABEL_W, 18, "", Colors.Text, Enum.TextXAlignment.Center)
+		label.TextWrapped = true
+		label.TextYAlignment = Enum.TextYAlignment.Top
 		local button = PixelUi.button(fill, "Press", 0, 0, NODE_SIZE - 2, NODE_SIZE - 2, "")
 		button.ZIndex = 2
 		local widget = { outline = outline, fill = fill, mark = mark, label = label, button = button }
