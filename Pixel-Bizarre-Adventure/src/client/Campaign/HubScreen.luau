@@ -22,6 +22,7 @@ local BlacksmithScreen = require(script.Parent.Parent.Phase4.BlacksmithScreen)
 local ClinicScreen = require(script.Parent.Parent.Phase4.ClinicScreen)
 local ParlorScreen = require(script.Parent.Parent.Phase4.ParlorScreen)
 local HallScreen = require(script.Parent.Parent.Lineage.HallScreen)
+local ActivitiesScreen = require(script.Parent.Parent.Activities.ActivitiesScreen)
 
 type Snapshot = HubTypes.CampaignSnapshot
 type ShopOffer = HubTypes.ShopOffer
@@ -60,7 +61,7 @@ function HubScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 	local stationButtons: { [Station]: CampaignUi.Button } = {
 		Shop = CampaignUi.button(frame, "ShopTab", 4, 105, 46, 11, "SHOP"),
 		Bag = CampaignUi.button(frame, "BagTab", 52, 105, 46, 11, "BAG"),
-		Party = CampaignUi.button(frame, "PartyTab", 4, 117, 94, 11, "PARTY"),
+		Party = CampaignUi.button(frame, "PartyTab", 4, 117, 46, 11, "PARTY"),
 	}
 	-- Phase 4 stations open over the Hub.
 	local phase4Buttons: { [Phase4Station]: CampaignUi.Button } = {
@@ -70,6 +71,8 @@ function HubScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 	}
 	-- The Hall of Ancestors (Lineage) also opens over the Hub.
 	local hallButton = CampaignUi.button(frame, "HallTab", 4, 153, 94, 11, "HALL OF ANCESTORS")
+	-- Activities (Auto-Battle and Expeditions) open over the Hub too.
+	local activityButton = CampaignUi.button(frame, "ActivityTab", 52, 117, 46, 11, "ACTIVITY")
 	local PHASE4_NAME: { [Phase4Station]: string } = {
 		Smith = "The Blacksmith",
 		Clinic = "The Clinic",
@@ -731,6 +734,41 @@ function HubScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 		openHall()
 	end)
 
+	local function openActivities()
+		if busy or overlay or openingStation then
+			return
+		end
+		if actions.isMock then
+			actions.toast("Activities need the game server.")
+			return
+		end
+		openingStation = true
+		rerender()
+		local client = actions.activity()
+		openingStation = false
+		if not frame.Parent then
+			return
+		end
+		rerender()
+		if not client then
+			actions.toast("Activities are closed. Try again soon.")
+			return
+		end
+		overlay = ActivitiesScreen.open(frame, {
+			client = client,
+			toast = actions.toast,
+			onClose = function()
+				overlay = nil
+				rerender()
+				-- Payouts change the Yen balance.
+				actions.refreshCampaign()
+			end,
+		})
+	end
+	activityButton.button.Activated:Connect(function()
+		openActivities()
+	end)
+
 	setOut.button.Activated:Connect(function()
 		local hub = hubPayload()
 		if busy or not hub then
@@ -768,6 +806,7 @@ function HubScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 			button.setState(if busy or openingStation or actions.isMock then "Disabled" else "Normal")
 		end
 		hallButton.setState(if busy or openingStation or actions.isMock then "Disabled" else "Normal")
+		activityButton.setState(if busy or openingStation or actions.isMock then "Disabled" else "Normal")
 	end
 
 	function self.setBusy(_self: Screen.Screen, value: boolean)

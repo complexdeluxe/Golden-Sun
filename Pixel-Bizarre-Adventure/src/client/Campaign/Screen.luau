@@ -22,6 +22,9 @@ export type Actions = {
 	-- The lineage client for the Hall of Ancestors and the Castle final-attempt
 	-- check. Same caching and nil rules as phase4.
 	lineage: () -> ActionClient.Client?,
+	-- The activity client for Auto-Battle and Expeditions. Same caching and nil
+	-- rules as phase4.
+	activity: () -> ActionClient.Client?,
 	-- Fetch the Campaign snapshot again, for example after leaving a station
 	-- that spent Yen.
 	refreshCampaign: () -> (),
