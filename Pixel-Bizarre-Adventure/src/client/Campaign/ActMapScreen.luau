@@ -4,6 +4,11 @@
 -- The client places the nodes (keyed by NodeId). The server decides links,
 -- locks, play options and rewards. Pick a node, pick one of its advertised
 -- options, then START. The HUB button goes back to change the loadout.
+--
+-- Final attempt: when the lineage snapshot says this life is on its final
+-- attempt, the map shows a warning, and START on an uncleared Castle asks for a
+-- confirmation first. Confirming sends the Castle play option with the
+-- server's `:confirm` suffix, which is what commits the player to the attempt.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HubTypes = require(ReplicatedStorage.Shared.Contracts.HubTypes)
@@ -66,6 +71,23 @@ function ActMapScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 	local reasonLabel = PixelUi.label(panel, "Reason", 128, 42, 120, 9, "", Colors.Hp)
 	local startButton = CampaignUi.button(panel, "Start", 252, 16, 64, 34, "START")
 
+	local finalBanner = PixelUi.label(frame, "FinalAttempt", 48, 18, 268, 12, "FINAL ATTEMPT: A CASTLE DEFEAT ENDS THIS GENERATION",
+		Colors.Hp, Enum.TextXAlignment.Right)
+	finalBanner.Visible = false
+
+	-- Final-attempt confirmation, over the whole map.
+	local confirm = PixelUi.frame(frame, "FinalConfirm", 0, 0, 320, 180, Palette.Backdrop)
+	confirm.Active = true
+	confirm.ZIndex = 5
+	confirm.Visible = false
+	local confirmBox = PixelUi.box(confirm, "Box", 40, 40, 240, 100, Palette.PurpleDark)
+	PixelUi.label(confirmBox, "Title", 0, 6, 238, 10, "FINAL ATTEMPT", Colors.Hp, Enum.TextXAlignment.Center)
+	local confirmText = PixelUi.label(confirmBox, "Text", 8, 20, 222, 48, "", Colors.Text, Enum.TextXAlignment.Center)
+	confirmText.TextWrapped = true
+	confirmText.TextYAlignment = Enum.TextYAlignment.Top
+	local enterButton = CampaignUi.button(confirmBox, "Enter", 8, 74, 108, 18, "ENTER THE CASTLE")
+	local notYetButton = CampaignUi.button(confirmBox, "NotYet", 122, 74, 108, 18, "NOT YET")
+
 	type NodeWidget = { outline: Frame, fill: Frame, mark: TextLabel, label: TextLabel, button: TextButton }
 	local widgets: { [string]: NodeWidget } = {}
 	local drawnLinks = ""
@@ -75,6 +97,25 @@ function ActMapScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 	local busy = false
 	local selectedNode: string? = nil
 	local selectedOption: string? = nil
+	-- From the lineage snapshot. Nil until it loads (or without the server).
+	local finalAttempt: { generation: number }? = nil
+	local pendingCastle: { nodeId: string, optionId: string }? = nil
+	local alive = true
+
+	-- Reads the lineage ledger. Returns nil when it can't be reached.
+	local function readFinalAttempt(): boolean?
+		local client = if actions.isMock then nil else actions.lineage()
+		if not client then
+			return nil
+		end
+		local result = client:refresh()
+		local lineage = client:snapshot()
+		if not result.ok or not lineage then
+			return nil
+		end
+		finalAttempt = if lineage.recoveryLedger.isFinalAttempt then { generation = lineage.generation } else nil
+		return finalAttempt ~= nil
+	end
 
 	local function mapPayload(): MapTypes.ActMapView?
 		local current = snapshot
@@ -286,7 +327,50 @@ function ActMapScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 			actions.toast(CampaignUi.reason(option.legality))
 			return
 		end
+		if node.id == "Castle" and node.state ~= "Cleared" then
+			-- Check the ledger now: a wipe since the map opened may have used the
+			-- last recovery.
+			busy = true
+			local final = readFinalAttempt()
+			busy = false
+			if not alive then
+				return
+			end
+			finalBanner.Visible = finalAttempt ~= nil
+			if final then
+				local generation = if finalAttempt then finalAttempt.generation else 0
+				pendingCastle = { nodeId = node.id, optionId = option.id }
+				confirmText.Text = `NO RECOVERIES LEFT. IF THE PARTY FALLS IN THIS CASTLE, GENERATION {generation} ENDS `
+					.. "AND YOUR HEIR STARTS OVER AT ACT 1."
+				confirm.Visible = true
+				enterButton.setState("Primary")
+				notYetButton.setState("Normal")
+				return
+			end
+		end
 		actions.submit({ kind = "StartNode", nodeId = node.id, playOptionId = option.id })
+	end)
+
+	enterButton.button.Activated:Connect(function()
+		local castle = pendingCastle
+		if busy or not castle then
+			return
+		end
+		pendingCastle = nil
+		confirm.Visible = false
+		-- The server's final-attempt guard accepts only the confirmed option.
+		actions.submit({ kind = "StartNode", nodeId = castle.nodeId, playOptionId = castle.optionId .. ":confirm" })
+	end)
+	notYetButton.button.Activated:Connect(function()
+		pendingCastle = nil
+		confirm.Visible = false
+	end)
+
+	task.spawn(function()
+		readFinalAttempt()
+		if alive then
+			finalBanner.Visible = finalAttempt ~= nil
+		end
 	end)
 
 	hubButton.button.Activated:Connect(function()
@@ -313,6 +397,7 @@ function ActMapScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 	end
 
 	function self.destroy(_self: Screen.Screen)
+		alive = false
 		frame:Destroy()
 	end
 
