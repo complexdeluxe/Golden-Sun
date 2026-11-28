@@ -34,6 +34,7 @@ local Phase4Client = require(script.Parent.Parent.Phase4.Phase4Client)
 local Phase4Connection = require(script.Parent.Parent.Phase4.Phase4Connection)
 local ActionClient = require(script.Parent.Parent.Net.ActionClient)
 local LineageConnection = require(script.Parent.Parent.Lineage.LineageConnection)
+local ActivityConnection = require(script.Parent.Parent.Activities.ActivityConnection)
 
 type Snapshot = HubTypes.CampaignSnapshot
 type Response = RemoteContract.CampaignResponse
@@ -110,6 +111,8 @@ function CampaignController.run(playerGui: Instance)
 	local phase4Connecting = false
 	local lineage: ActionClient.Client? = nil
 	local lineageConnecting = false
+	local activity: ActionClient.Client? = nil
+	local activityConnecting = false
 	local actions: Screen.Actions
 	local accept: (incoming: Snapshot, fromEvent: boolean) -> ()
 	local show: (current: Snapshot) -> ()
@@ -322,6 +325,15 @@ function CampaignController.run(playerGui: Instance)
 			lineage = LineageConnection.connect()
 			lineageConnecting = false
 			return lineage
+		end,
+		activity = function(): ActionClient.Client?
+			if activity or connection.isMock or activityConnecting then
+				return activity
+			end
+			activityConnecting = true
+			activity = ActivityConnection.connect()
+			activityConnecting = false
+			return activity
 		end,
 		refreshCampaign = function()
 			if busy then
