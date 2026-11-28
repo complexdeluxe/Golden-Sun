@@ -168,12 +168,28 @@ function PixelUi.bar(
 	return outer, set
 end
 
--- Builds the 320 x 180 root inside a full-screen letterbox and keeps it at the
--- largest whole-number scale that fits the screen.
+-- How far past the safe area the black backdrop reaches, in screen pixels.
+local BACKDROP_BLEED = 400
+
+-- Builds the 320 x 180 root inside a letterbox and keeps it at the largest
+-- whole-number scale that fits. The letterbox is the device's safe area, so
+-- a notch or a phone's home indicator never covers a control; a black
+-- backdrop fills the rest of the screen behind it.
 function PixelUi.integerScaledRoot(screenGui: ScreenGui): Frame
-	screenGui.IgnoreGuiInset = true
+	screenGui.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets
 	screenGui.ResetOnSpawn = false
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+	-- ScreenGuis do not clip, so this oversized frame reaches the screen edges
+	-- outside the safe area.
+	local backdrop = Instance.new("Frame")
+	backdrop.Name = "Backdrop"
+	backdrop.BackgroundColor3 = Color3.new(0, 0, 0)
+	backdrop.BorderSizePixel = 0
+	backdrop.Position = UDim2.fromOffset(-BACKDROP_BLEED, -BACKDROP_BLEED)
+	backdrop.Size = UDim2.new(1, 2 * BACKDROP_BLEED, 1, 2 * BACKDROP_BLEED)
+	backdrop.ZIndex = 0
+	backdrop.Parent = screenGui
 
 	local letterbox = Instance.new("Frame")
 	letterbox.Name = "Letterbox"

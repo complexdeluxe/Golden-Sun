@@ -41,6 +41,8 @@ local CombatTypes = require(ReplicatedStorage.Shared.Contracts.CombatTypes)
 local AssetManifest = require(ReplicatedStorage.Shared.Contracts.AssetManifest)
 local PixelUi = require(script.Parent.PixelUi)
 local FighterSprite = require(script.Parent.FighterSprite)
+local SpriteSheet = require(script.Parent.SpriteSheet)
+local Audio = require(script.Parent.Parent.Audio.Audio)
 local AppearanceTypes = require(ReplicatedStorage.Shared.Contracts.CharacterAppearanceTypes)
 
 -- The HUD draws the shared battle fields. The sandbox adds the Black Sabbath
@@ -165,6 +167,23 @@ local CALLOUT_Y = FighterSprite.FEET_ROW + 1
 local CALLOUT_H = 7
 local CALLOUT_GAP = 2 -- overlay px between chips and between neighbours' rows
 local QTE_CHOICES: { QteInput } = { "Left", "Center", "Right" }
+
+-- When a sheet target shows its hit frame, after the attacker starts.
+local HIT_DELAY = 0.15
+
+-- Which sheet clip a logged move plays. Unknown moves play the basic attack.
+local function attackClip(moveId: string?): SpriteSheet.Clip
+	if moveId == nil then
+		return "basic"
+	elseif moveId == "Finisher" then
+		return "finisher"
+	elseif moveId == "HamonInterrupt" or string.find(moveId, "Grab", 1, true) then
+		return "skill"
+	elseif string.find(moveId, "Heavy", 1, true) then
+		return "heavy"
+	end
+	return "basic"
+end
 
 -- Manual ring, in native pixels. The approach ring shrinks from RING_START to
 -- RING_TARGET between approachStartsAtServerTime and overlapAtServerTime.
@@ -2011,17 +2030,52 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 				bestText, bestColor, bestRank = text, color, rank
 			end
 		end
+		-- Sheet fighters: the attacker plays its move once, the target its hit
+		-- frame a beat later, and both return to idle. Static art ignores this.
+		local acted: { [string]: boolean } = {}
+		local function animate(actorId: string?, clip: SpriteSheet.Clip, delay: number?)
+			local view = if actorId then fighters[actorId] else nil
+			if not view then
+				return
+			end
+			local sprite = view.sprite
+			if delay then
+				task.delay(delay, function()
+					if sprite.Parent then
+						FighterSprite.play(sprite, clip)
+					end
+				end)
+			else
+				FighterSprite.play(sprite, clip)
+			end
+		end
 		for i = from, #snapshot.log do
 			local event = snapshot.log[i]
+			if event.kind == "Action" and event.actorId and event.moveId ~= "Defend" then
+				acted[event.actorId] = true
+				animate(event.actorId, attackClip(event.moveId))
+			elseif event.kind == "Guard" then
+				animate(event.actorId, "guard")
+				Audio.sfx("Guard")
+			end
 			if event.kind == "Damage" and event.targetId then
+				if event.actorId and not acted[event.actorId] then
+					acted[event.actorId] = true
+					animate(event.actorId, attackClip(event.moveId))
+				end
+				animate(event.targetId, "hit", HIT_DELAY)
+				local clip = attackClip(event.moveId)
+				Audio.sfx(if clip == "heavy" or clip == "finisher" then "HeavyHit" else "Hit")
 				local view = fighters[event.targetId]
 				if view then
 					flashHit(view)
 				end
 			elseif event.kind == "Dodged" then
 				offer(6, "DODGED!", Colors.Guard)
+				Audio.sfx("Dodge")
 			elseif event.kind == "FailedQTE_0of3" then
 				offer(7, "0/3 MISSED TIMING!", Night.Miss)
+				Audio.sfx("QteMiss")
 			elseif event.kind == "Interrupt" then
 				offer(5, "INTERRUPTED!", Colors.Active)
 			elseif event.kind == "UVCancel" then
@@ -2063,6 +2117,9 @@ function CombatHudV2.new(screenGui: ScreenGui, callbacks: Callbacks): CombatHudV
 
 		if sameBattle then
 			playEvents(snapshot, lastLogCount + 1)
+			if previous and previous.outcome == "InProgress" and snapshot.outcome ~= "InProgress" then
+				Audio.sfx(if snapshot.outcome == "Victory" then "Victory" else "Defeat")
+			end
 		end
 		lastLogCount = #snapshot.log
 

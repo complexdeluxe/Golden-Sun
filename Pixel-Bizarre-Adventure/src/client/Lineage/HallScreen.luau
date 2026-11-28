@@ -136,7 +136,8 @@ function HallScreen.open(parent: Instance, deps: Deps): Hall
 					fill = fill,
 					name = PixelUi.label(fill, "Name", 2, 0, 122, 7, "", Colors.Text),
 					rank = PixelUi.label(fill, "Rank", 124, 0, 30, 7, "", Colors.TextDim, Enum.TextXAlignment.Right),
-					press = PixelUi.button(fill, "Press", 0, 0, 156, 7, ""),
+					-- The whole 9 px row, border included, so rows tap edge to edge on phones.
+					press = PixelUi.button(outline, "Press", 0, 0, 158, 9, ""),
 					nodeId = nodeId,
 				})
 				y += 9
@@ -161,8 +162,10 @@ function HallScreen.open(parent: Instance, deps: Deps): Hall
 			outline = outline,
 			fill = fill,
 			tile = tile,
-			name = PixelUi.label(fill, "Name", 14, 1, 100, 9, "", Colors.Text),
-			badge = PixelUi.label(fill, "Badge", 112, 1, 42, 9, "", Colors.TextDim, Enum.TextXAlignment.Right),
+			-- Native widths that fit the longest catalog name (ZEPPELI'S CHECKERED HAT
+			-- needs 108) and ATTUNED (needs 33) at every UI scale, 3x included.
+			name = PixelUi.label(fill, "Name", 14, 1, 108, 9, "", Colors.Text),
+			badge = PixelUi.label(fill, "Badge", 122, 1, 33, 9, "", Colors.TextDim, Enum.TextXAlignment.Right),
 			press = PixelUi.button(fill, "Press", 0, 0, 156, 11, ""),
 		}
 	end

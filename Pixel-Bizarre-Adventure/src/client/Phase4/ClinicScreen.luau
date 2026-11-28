@@ -97,7 +97,9 @@ function ClinicScreen.open(parent: Instance, deps: StationShell.Deps): Clinic
 	installedLine.TextXAlignment = Enum.TextXAlignment.Right
 	local routineLine = line("Routine", 10, Colors.TextDim)
 
-	line("OfferHead", 20, Colors.TextDim, 0, 160).Text = "TIER  TOL   COST              ROUTINE"
+	-- One header per column, over the offer text and routine columns below.
+	line("OfferHead", 20, Colors.TextDim, 0, 118).Text = "TIER  TOL   COST"
+	line("OfferRoutineHead", 20, Colors.TextDim, 118, 50).Text = "ROUTINE"
 	type OfferRow = { text: TextLabel, routine: TextLabel, install: CampaignUi.Button }
 	local offerRows: { OfferRow } = {}
 	for i = 1, OFFER_ROWS do

@@ -11,6 +11,7 @@ local CombatTypes = require(ReplicatedStorage.Shared.Contracts.CombatTypes)
 local AppearanceTypes = require(ReplicatedStorage.Shared.Contracts.CharacterAppearanceTypes)
 local PixelUi = require(script.Parent.Parent.Battle.PixelUi)
 local AppearanceArt = require(script.Parent.Parent.Battle.AppearanceArt)
+local FighterSprite = require(script.Parent.Parent.Battle.FighterSprite)
 
 type Legality = CombatTypes.ActionLegality
 type Appearance = AppearanceTypes.Appearance
@@ -157,16 +158,24 @@ end
 
 export type Preview = {
 	root: Frame,
-	set: (appearance: Appearance?, swatchHex: string?) -> (),
+	set: (appearance: Appearance?, swatchHex: string?, sprites: AppearanceTypes.AppearanceSprites?) -> (),
 }
 
 -- The player on a 96 x 96 canvas, built from the selected skin and hair IDs.
--- Uses the body/hair sprites when the manifest has them, otherwise a silhouette.
+-- With `sprites` whose body layer is uploaded, the same layered art as in
+-- battle is drawn (body, hair tinted with the saved colour, untinted trim).
+-- Otherwise a silhouette, with the hair in the saved colour when there is one.
 function CampaignUi.preview(parent: Instance, name: string, x: number, y: number): Preview
 	local root = PixelUi.frame(parent, name, x, y, 96, 96)
 	local body = PixelUi.frame(root, "Body", 0, 0, 96, 96)
-	local function set(appearance: Appearance?, swatchHex: string?)
+	local function set(appearance: Appearance?, swatchHex: string?, sprites: AppearanceTypes.AppearanceSprites?)
 		body:ClearAllChildren()
+		local bodyKey = if sprites then sprites.bodySpriteKey else nil
+		local bodyId = if bodyKey then (AssetManifest :: any)[bodyKey] else nil
+		if sprites and type(bodyId) == "string" and bodyId ~= PixelUi.UNSET_ASSET then
+			FighterSprite.create(body, "PlayerIdle", false, appearance, sprites)
+			return
+		end
 		local skin = AppearanceArt.skinColor(appearance, swatchHex)
 		local top = Color3.fromHex("#3d6fb0")
 		local legs = Color3.fromHex("#2a2f4a")
@@ -182,11 +191,14 @@ function CampaignUi.preview(parent: Instance, name: string, x: number, y: number
 			PixelUi.box(body, `Part{index}`, part[1], part[2], part[3], part[4], part[5])
 		end
 		PixelUi.frame(body, "Eye", 52, 34, 2, 2, Colors.Ink)
+		local hex = if appearance then appearance.hairColorHex else nil
+		local ok, chosen = pcall(Color3.fromHex, hex or "")
+		local hairColor = if hex and ok then chosen else AppearanceArt.HAIR_COLOR
 		for index, shape in AppearanceArt.hairShapes(appearance) do
-			PixelUi.frame(body, `Hair{index}`, shape[1], shape[2], shape[3], shape[4], AppearanceArt.HAIR_COLOR)
+			PixelUi.frame(body, `Hair{index}`, shape[1], shape[2], shape[3], shape[4], hairColor)
 		end
 	end
-	set(nil, nil)
+	set(nil, nil, nil)
 	return { root = root, set = set }
 end
 

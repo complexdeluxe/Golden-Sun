@@ -115,6 +115,8 @@ function ParlorScreen.open(parent: Instance, deps: StationShell.Deps): Parlor
 			pity = PixelUi.label(detail, `UsedPity{i}`, 188, y, 24, 9, "", Palette.Gold, Enum.TextXAlignment.Right),
 		}
 	end
+	-- Before the first bet, across the whole results area.
+	local emptyLine = PixelUi.label(detail, "ResultEmpty", 0, 61, DETAIL_W, 9, "PLACE A BET TO SEE WHAT D'ARBY DEALS.", Colors.TextDim, Enum.TextXAlignment.Center)
 	local statusLine = PixelUi.label(detail, "Status", 0, 153, DETAIL_W, 9, "", Colors.TextDim)
 
 	local selected: TierId = TIER_ORDER[1]
@@ -148,6 +150,7 @@ function ParlorScreen.open(parent: Instance, deps: StationShell.Deps): Parlor
 
 	local function renderResults()
 		local shown = batch
+		emptyLine.Visible = shown == nil
 		for i, row in resultRows do
 			local result = if shown and i <= revealed then shown.results[i] else nil
 			row.index.Text = if result then tostring(i) else ""
@@ -160,7 +163,7 @@ function ParlorScreen.open(parent: Instance, deps: StationShell.Deps): Parlor
 					elseif prize.kind == "Cosmetic" then Colors.Active
 					else Colors.Text
 			else
-				row.prize.Text = if i == 1 and not shown then "PLACE A BET TO SEE WHAT D'ARBY DEALS." else ""
+				row.prize.Text = ""
 				row.prize.TextColor3 = Colors.TextDim
 			end
 			row.pity.Text = if result and result.usedPity then "PITY" else ""

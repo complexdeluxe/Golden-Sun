@@ -70,6 +70,22 @@ function CreatorScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 		return nil
 	end
 
+	-- The catalog's layers for a look, as the snapshot would resolve them.
+	local function spritesFor(cat: Catalog, look: Appearance): AppearanceTypes.AppearanceSprites
+		local bodyKey, overlayKey, accentKey = nil, nil, nil
+		for _, tone in cat.skinTones do
+			if tone.id == look.skinToneId then
+				bodyKey = tone.bodySpriteKey
+			end
+		end
+		for _, style in cat.hairStyles do
+			if style.id == look.hairStyleId then
+				overlayKey, accentKey = style.overlaySpriteKey, style.accentSpriteKey
+			end
+		end
+		return { bodySpriteKey = bodyKey, overlaySpriteKey = overlayKey, accentSpriteKey = accentKey }
+	end
+
 	local function hairLabel(cat: Catalog, id: string): string
 		for _, style in cat.hairStyles do
 			if style.id == id then
@@ -94,7 +110,7 @@ function CreatorScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 		if not cat or not look then
 			return
 		end
-		preview.set(look, swatchHex(cat, look.skinToneId))
+		preview.set(look, swatchHex(cat, look.skinToneId), spritesFor(cat, look))
 		lookLabel.Text = `{string.upper(look.skinToneId)} / {string.upper(hairLabel(cat, look.hairStyleId))}`
 		for i, swatch in swatches do
 			local tone = cat.skinTones[i]
