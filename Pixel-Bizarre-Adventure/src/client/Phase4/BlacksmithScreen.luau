@@ -5,7 +5,8 @@
 -- rolled affixes, temper level and pity, and runs the four smith services:
 -- reroll offers (Accept/Keep), tempering to +10, Holy Water purification and
 -- dismantling. Every price, chance and legality is the server's; a disabled
--- button explains why when pressed.
+-- button explains why when pressed. Hovering a list row shows its rolled
+-- lines in a tooltip.
 --
 -- Layout (native px):
 --   top bar   0..14     title, shards / materials / Holy Water, Yen
@@ -19,6 +20,8 @@ local PixelUi = require(script.Parent.Parent.Battle.PixelUi)
 local CampaignUi = require(script.Parent.Parent.Campaign.CampaignUi)
 local Phase4Client = require(script.Parent.Phase4Client)
 local Format = require(script.Parent.BlacksmithFormat)
+local StationFormat = require(script.Parent.StationFormat)
+local PendingControl = require(script.Parent.PendingControl)
 
 type Snapshot = Contract.Snapshot
 type ItemView = Contract.SmithItemView
@@ -64,6 +67,12 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 	PixelUi.label(bar, "Title", 4, 2, 70, 10, "BLACKSMITH", Palette.Gold)
 	local balanceLabel = PixelUi.label(bar, "Balances", 76, 2, 184, 10, "", Colors.TextDim, Enum.TextXAlignment.Right)
 	local yenLabel = PixelUi.label(bar, "Yen", 262, 2, 54, 10, "", Palette.Yen, Enum.TextXAlignment.Right)
+	-- RETRY LAST ACTION, over the balances while the shared client keeps an
+	-- unconfirmed action from any station.
+	local retryLast: () -> () = function() end
+	local pendingControl = PendingControl.attach(bar, client, function()
+		retryLast()
+	end)
 
 	-- Gear list.
 	PixelUi.label(frame, "ListTitle", 2, 16, 60, 9, "GEAR", Palette.Gold)
@@ -140,6 +149,17 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 	local notice = PixelUi.label(detail, "Notice", 0, 50, DETAIL_W, 10, "", Colors.TextDim, Enum.TextXAlignment.Center)
 	local noticeLine = PixelUi.label(detail, "Notice2", 0, 61, DETAIL_W, 10, "", Colors.TextDim, Enum.TextXAlignment.Center)
 	local retry = CampaignUi.button(detail, "Retry", 76, 76, 60, 14, "RETRY")
+
+	-- Rolled-line tooltip for a hovered list row, drawn over the detail panel.
+	local TIP_W = 132
+	local tipOutline, tipFill = PixelUi.box(frame, "Tooltip", DETAIL_X - 2, 27, TIP_W, 12, Colors.PanelLight)
+	tipOutline.ZIndex = 6
+	tipOutline.Visible = false
+	local tipLines: { TextLabel } = {}
+	for i = 1, AFFIX_ROWS + 2 do
+		tipLines[i] = PixelUi.label(tipFill, `Line{i}`, 2, 1 + (i - 1) * 9, TIP_W - 6, 9, "", Colors.Text)
+	end
+	local hovered: number? = nil
 
 	local self = {} :: Blacksmith
 	local alive = true
@@ -218,7 +238,7 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 	end
 
 	local function legalButton(button: CampaignUi.Button, legality: Legality, primary: boolean?)
-		if busy or not legality.canUse then
+		if busy or client:pendingAction() or not legality.canUse then
 			button.setState("Disabled")
 		else
 			button.setState(if primary then "Primary" else "Normal")
@@ -226,8 +246,42 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 	end
 
 	-- Runs one action and shows the committed receipt or the server's reason.
+	-- RETRY LAST ACTION: sends the kept request with its original ID and action.
+	local function retryPending()
+		if busy or not alive or not client:pendingAction() then
+			return
+		end
+		busy = true
+		setStatus("RETRYING LAST ACTION...", Colors.TextDim)
+		render()
+		local result = client:retryPending()
+		if not alive then
+			return
+		end
+		busy = false
+		if client:snapshot() and (result.ok or not result.uncertain) then
+			loaded = true
+			loadError = nil
+		end
+		local text, color = pendingControl.describe(result)
+		setStatus(text, color)
+		deps.toast(if result.ok then text else (result.message or text))
+		local snapshot = client:snapshot()
+		if snapshot then
+			settleSelection(snapshot)
+		end
+		render()
+	end
+	retryLast = retryPending
+
 	local function run(action: Contract.Action, label: string?)
 		if busy then
+			return
+		end
+		if client:pendingAction() then
+			-- Finish the unconfirmed action before sending a new one.
+			deps.toast("Finishing your last action first.")
+			retryPending()
 			return
 		end
 		busy = true
@@ -241,7 +295,9 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 		local receipt = result.receipt
 		if result.ok and receipt then
 			-- A reply that settled an earlier unconfirmed action describes that one.
-			local text = Format.receipt(receipt, if result.resolvedPending then nil else label)
+			-- StationFormat also covers Clinic and Parlor receipts, which the shared
+			-- client can settle here.
+			local text = StationFormat.receipt(receipt, if result.resolvedPending then nil else label)
 			if result.resolvedPending then
 				text = "EARLIER: " .. text
 			end
@@ -254,7 +310,10 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 			confirmDismantle = nil
 		else
 			local message = result.message or "The Blacksmith couldn't do that."
-			if result.resolvedPending then
+			local kept = client:pendingAction()
+			if result.uncertain and kept then
+				message = PendingControl.waitingText(StationFormat.action(kept))
+			elseif result.resolvedPending then
 				message = "Last action not applied: " .. message
 			end
 			if result.code == "StaleRevision" then
@@ -286,6 +345,10 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 		local snapshot = client:snapshot()
 		if snapshot and result.ok then
 			settleSelection(snapshot)
+		end
+		local kept = client:pendingAction()
+		if result.ok and kept then
+			setStatus(PendingControl.waitingText(StationFormat.action(kept)), Colors.Hp)
 		end
 		render()
 	end
@@ -416,8 +479,12 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 		if not alive then
 			return
 		end
+		-- Rows may now hold different items. The next hover redraws the tooltip.
+		hovered = nil
+		tipOutline.Visible = false
 		back.setState(if busy then "Disabled" else "Normal")
 		local snapshot = client:snapshot()
+		balanceLabel.Visible = pendingControl.render(busy) == nil
 		if snapshot then
 			yenLabel.Text = `{snapshot.balances.yen} YEN`
 			balanceLabel.Text = Format.balances(snapshot.balances)
@@ -484,6 +551,65 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 			render()
 		end)
 	end
+	-- Hover shows the row's rolled lines without selecting it. Touch players
+	-- see the same lines in the detail panel.
+	local function hideTip()
+		hovered = nil
+		tipOutline.Visible = false
+	end
+	local function showTip(index: number)
+		local snapshot = client:snapshot()
+		if not alive or not snapshot then
+			return
+		end
+		local view = ordered(snapshot)[(page - 1) * LIST_ROWS + index]
+		if not view or not rows[index].outline.Visible then
+			hideTip()
+			return
+		end
+		hovered = index
+		local item = view.item
+		local texts: { { text: string, color: Color3 } } = {
+			{ text = Format.name(view), color = Palette.Gold },
+		}
+		if #item.rolledLines == 0 then
+			table.insert(texts, { text = "PLAIN GEAR. NO ROLLED LINES.", color = Colors.TextDim })
+		end
+		for _, rolled in item.rolledLines do
+			table.insert(texts, { text = Format.affix(rolled), color = Colors.Text })
+		end
+		if item.pendingSmithOffer then
+			table.insert(texts, { text = "NEW ROLL WAITING", color = Colors.Active })
+		elseif item.cursed then
+			table.insert(texts, { text = "CURSED", color = Colors.Hp })
+		end
+		for i, label in tipLines do
+			local entry = texts[i]
+			label.Visible = entry ~= nil
+			if entry then
+				label.Text = entry.text
+				label.TextColor3 = entry.color
+			end
+		end
+		local count = math.min(#texts, #tipLines)
+		tipOutline.Size = UDim2.fromOffset(TIP_W, count * 9 + 4)
+		tipFill.Size = UDim2.fromOffset(TIP_W - 2, count * 9 + 2)
+		-- Beside the row, kept on screen.
+		local rowY = 27 + (index - 1) * ROW_HEIGHT
+		tipOutline.Position = UDim2.fromOffset(DETAIL_X - 2, math.min(rowY, 178 - (count * 9 + 4)))
+		tipOutline.Visible = true
+	end
+	for i, row in rows do
+		row.press.MouseEnter:Connect(function()
+			showTip(i)
+		end)
+		row.press.MouseLeave:Connect(function()
+			if hovered == i then
+				hideTip()
+			end
+		end)
+	end
+
 	prevPage.button.Activated:Connect(function()
 		page -= 1
 		render()
