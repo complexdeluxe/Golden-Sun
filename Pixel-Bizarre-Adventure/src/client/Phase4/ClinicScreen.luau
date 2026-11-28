@@ -177,7 +177,8 @@ function ClinicScreen.open(parent: Instance, deps: StationShell.Deps): Clinic
 		end
 		syncDraft(snapshot)
 		local clinic = snapshot.clinic
-		local busy = shell.busy()
+		-- No new Clinic action while an earlier one is unconfirmed.
+		local busy = shell.busy() or shell.pending() ~= nil
 		local open = clinic.legality.canUse
 
 		-- Site list.

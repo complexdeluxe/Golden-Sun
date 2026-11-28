@@ -8,6 +8,12 @@
 -- with its original ID and action and sends it again on the next press, so a
 -- reply may describe an earlier action, possibly from another station. The
 -- status says so ("EARLIER: ...").
+--
+-- While the client keeps an unconfirmed request, the top bar shows RETRY LAST
+-- ACTION (PendingControl) and the station sends no new action: any action press
+-- retries the kept one instead. A recovered receipt goes to the station that
+-- claims its kind (the Parlor reveals a recovered spin), here or the next time
+-- that station opens.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Contract = require(ReplicatedStorage.Shared.Contracts.Phase4EconomyTypes)
@@ -16,6 +22,7 @@ local PixelUi = require(script.Parent.Parent.Battle.PixelUi)
 local CampaignUi = require(script.Parent.Parent.Campaign.CampaignUi)
 local Phase4Client = require(script.Parent.Phase4Client)
 local StationFormat = require(script.Parent.StationFormat)
+local PendingControl = require(script.Parent.PendingControl)
 
 type Snapshot = Contract.Snapshot
 type Legality = CombatTypes.ActionLegality
@@ -38,6 +45,8 @@ export type Config = {
 	-- Fallback when the server gives no message.
 	failText: string,
 	balances: (balances: Contract.Balances) -> string,
+	-- Receipt kinds this station shows itself when they settle a kept request.
+	recovers: { [string]: boolean }?,
 }
 
 export type Status = { text: string, color: Color3 }
@@ -59,7 +68,14 @@ export type Shell = {
 	render: () -> (),
 	-- Toasts the server's reason and returns true when the control is blocked.
 	explain: (legality: Legality) -> boolean,
+	-- The unconfirmed action's name while the client keeps one.
+	pending: () -> string?,
+	-- Sends the kept request again (RETRY LAST ACTION).
+	retry: () -> (),
+	-- Called with a recovered receipt of a kind in `config.recovers`.
+	setRecovered: (fn: (receipt: Contract.Receipt) -> ()) -> (),
 	-- Sends one action. `after` sees the result before the station redraws.
+	-- While an action is unconfirmed, this retries that one instead.
 	run: (action: Contract.Action, after: ((result: Phase4Client.Result) -> ())?) -> (),
 	load: () -> (),
 	destroy: () -> (),
@@ -78,6 +94,10 @@ function StationShell.open(parent: Instance, deps: Deps, config: Config): Shell
 	PixelUi.label(bar, "Title", 4, 2, 110, 10, config.title, Palette.Gold)
 	local balanceLabel = PixelUi.label(bar, "Balances", 114, 2, 146, 10, "", Colors.TextDim, Enum.TextXAlignment.Right)
 	local yenLabel = PixelUi.label(bar, "Yen", 262, 2, 54, 10, "", Palette.Yen, Enum.TextXAlignment.Right)
+	local retryLast: () -> () = function() end
+	local pendingControl = PendingControl.attach(bar, client, function()
+		retryLast()
+	end)
 
 	local body = PixelUi.frame(frame, "Body", 0, 16, 320, 164)
 	local notice = PixelUi.label(frame, "Notice", 0, 70, 320, 10, "", Colors.TextDim, Enum.TextXAlignment.Center)
@@ -91,6 +111,8 @@ function StationShell.open(parent: Instance, deps: Deps, config: Config): Shell
 	local loadError: string? = nil
 	local status: Status? = nil
 	local screenRender: () -> () = function() end
+	local onRecovered: (receipt: Contract.Receipt) -> () = function() end
+	local recovers = config.recovers or {}
 
 	local shell = {} :: Shell
 	shell.frame = frame
@@ -128,15 +150,20 @@ function StationShell.open(parent: Instance, deps: Deps, config: Config): Shell
 		end
 		back.setState(if busy then "Disabled" else "Normal")
 		local snapshot = client:snapshot()
+		local waiting = pendingControl.render(busy)
 		yenLabel.Text = if snapshot then `{snapshot.balances.yen} YEN` else ""
 		balanceLabel.Text = if snapshot then config.balances(snapshot.balances) else ""
+		-- RETRY LAST ACTION sits over the balances while an action is unconfirmed.
+		balanceLabel.Visible = waiting == nil
 		local ready = loaded and snapshot ~= nil
 		body.Visible = ready
 		notice.Visible = not ready
 		local failed = loadError
 		retry.outline.Visible = not ready and failed ~= nil
 		if not ready then
-			notice.Text = if failed then string.upper(failed) else config.loadingText
+			notice.Text = if failed and waiting then string.upper(failed) .. " LAST ACTION KEPT."
+				elseif failed then string.upper(failed)
+				else config.loadingText
 			notice.TextColor3 = if failed then Colors.Hp else Colors.TextDim
 			retry.setState(if busy then "Disabled" else "Primary")
 			return
@@ -152,8 +179,59 @@ function StationShell.open(parent: Instance, deps: Deps, config: Config): Shell
 		return true
 	end
 
+	function shell.pending(): string?
+		local action = client:pendingAction()
+		return if action then StationFormat.action(action) else nil
+	end
+
+	function shell.setRecovered(fn: (receipt: Contract.Receipt) -> ())
+		onRecovered = fn
+	end
+
+	-- Hands a recovered receipt to this station when it shows that kind.
+	local function deliverRecovered()
+		local receipt = client:takeRecovered(recovers)
+		if receipt then
+			onRecovered(receipt)
+		end
+	end
+
+	function shell.retry()
+		if busy or not alive or not client:pendingAction() then
+			return
+		end
+		busy = true
+		shell.setStatus("RETRYING LAST ACTION...", Colors.TextDim)
+		shell.render()
+		local result = client:retryPending()
+		if not alive then
+			return
+		end
+		busy = false
+		-- A retry that opened a session also loads the station.
+		if client:snapshot() and (result.ok or not result.uncertain) then
+			loaded = true
+			loadError = nil
+		elseif not loaded then
+			-- Still no session: the notice says so and keeps both retries.
+			loadError = "Couldn't reach the server."
+		end
+		local text, color = pendingControl.describe(result)
+		shell.setStatus(text, color)
+		deps.toast(if result.ok then text else (result.message or text))
+		deliverRecovered()
+		shell.render()
+	end
+	retryLast = shell.retry
+
 	function shell.run(action: Contract.Action, after: ((result: Phase4Client.Result) -> ())?)
 		if busy or not alive then
+			return
+		end
+		if client:pendingAction() then
+			-- Finish the unconfirmed action before sending a new one.
+			deps.toast("Finishing your last action first.")
+			shell.retry()
 			return
 		end
 		busy = true
@@ -174,7 +252,10 @@ function StationShell.open(parent: Instance, deps: Deps, config: Config): Shell
 			deps.toast(text)
 		else
 			local message = result.message or config.failText
-			if result.code == "StaleRevision" then
+			local waiting = shell.pending()
+			if result.uncertain and waiting then
+				message = PendingControl.waitingText(waiting)
+			elseif result.code == "StaleRevision" then
 				message = "Balances changed. Press again to retry."
 			elseif result.resolvedPending then
 				message = "Last action not applied: " .. message
@@ -185,6 +266,7 @@ function StationShell.open(parent: Instance, deps: Deps, config: Config): Shell
 		if after then
 			after(result)
 		end
+		deliverRecovered()
 		shell.render()
 	end
 
@@ -203,6 +285,14 @@ function StationShell.open(parent: Instance, deps: Deps, config: Config): Shell
 		loaded = result.ok
 		if not result.ok then
 			loadError = result.message or config.failText
+		end
+		local waiting = shell.pending()
+		if loaded and waiting then
+			shell.setStatus(PendingControl.waitingText(waiting), Colors.Hp)
+		end
+		if loaded then
+			-- A receipt recovered at another station for this one.
+			deliverRecovered()
 		end
 		shell.render()
 	end

@@ -15,6 +15,13 @@
 --   * ProfileLocked means the lease expired. The client opens a new session
 --     and, if an earlier attempt was uncertain, retries the same requestId and
 --     action under it.
+--   * retryPending() sends the kept request on its own, so a station can offer
+--     a Retry last action control even when the current snapshot no longer
+--     allows the original action (the last Yen is spent, the implant is gone).
+--     If no snapshot is loaded yet, it opens a session first.
+--   * A receipt that settled a kept request is also stored until a station
+--     takes it (takeRecovered), so the station the action belongs to can show
+--     it, for example the Parlor revealing the original spin's prizes.
 --   * StaleRevision (and any other definitive rejection) adopts the snapshot the
 --     server returned so the station can show the new price or balance. It is
 --     never retried automatically.
@@ -61,6 +68,12 @@ export type Client = {
 	perform: (self: Client, action: Action) -> Result,
 	-- The action still waiting for a confirmed reply, if any.
 	pendingAction: (self: Client) -> Action?,
+	-- Sends the kept request again with its original ID and action. The result
+	-- has resolvedPending set once the server answers definitively.
+	retryPending: (self: Client) -> Result,
+	-- Returns and clears the last receipt that settled a kept request, when its
+	-- kind is one the caller handles.
+	takeRecovered: (self: Client, kinds: { [string]: boolean }) -> Receipt?,
 }
 
 local BACKOFF_SECONDS = { 0.5, 1, 2, 3 }
@@ -94,6 +107,8 @@ function Phase4Client.new(transport: Transport, options: Options): Client
 	-- An unconfirmed request, kept with its original ID and action until the
 	-- server answers it definitively.
 	local held: { request: ActionRequest, signature: string }? = nil
+	-- The receipt that settled a kept request, until a station shows it.
+	local recovered: Receipt? = nil
 	local retries = options.retries or 3
 
 	local function adopt(incoming: unknown)
@@ -121,10 +136,19 @@ function Phase4Client.new(transport: Transport, options: Options): Client
 		return if kept then kept.request.action else nil
 	end
 
+	function self.takeRecovered(_self: Client, kinds: { [string]: boolean }): Receipt?
+		local receipt = recovered
+		if receipt and kinds[receipt.kind] then
+			recovered = nil
+			return receipt
+		end
+		return nil
+	end
+
 	function self.refresh(_self: Client): Result
 		local success, reply = pcall(transport.getSnapshot)
 		if not success or not isTable(reply) then
-			return { ok = false, code = "SaveUnavailable", message = "Couldn't reach the Blacksmith. Try again.", uncertain = true }
+			return { ok = false, code = "SaveUnavailable", message = "Couldn't reach the server. Try again.", uncertain = true }
 		end
 		local response = reply :: any
 		if response.ok == true then
@@ -213,6 +237,9 @@ function Phase4Client.new(transport: Transport, options: Options): Client
 			local request = table.clone(kept.request)
 			request.sessionId = snapshot.sessionId
 			local result = send(request, kept.signature, true)
+			if result.ok and result.receipt then
+				recovered = result.receipt
+			end
 			if kept.signature ~= key and not result.uncertain then
 				result.resolvedPending = true
 			end
@@ -224,6 +251,35 @@ function Phase4Client.new(transport: Transport, options: Options): Client
 			requestId = options.makeId(),
 			action = action,
 		}, key, false)
+	end
+
+	function self.retryPending(_self: Client): Result
+		local kept = held
+		if not kept then
+			return { ok = false, code = "NothingPending", message = "There is no unconfirmed action." }
+		end
+		if not current then
+			-- Nothing loaded yet (the station failed to open). Open a session so
+			-- the original request can be sent under it.
+			local opened = self:refresh()
+			if not opened.ok or not current then
+				return {
+					ok = false, code = opened.code or "SaveUnavailable", uncertain = true,
+					message = "Couldn't reach the server. Your last action is still saved for retry.",
+				}
+			end
+		end
+		local snapshot = current :: Snapshot
+		local request = table.clone(kept.request)
+		request.sessionId = snapshot.sessionId
+		local result = send(request, kept.signature, true)
+		if result.ok and result.receipt then
+			recovered = result.receipt
+		end
+		if not result.uncertain then
+			result.resolvedPending = true
+		end
+		return result
 	end
 
 	return self

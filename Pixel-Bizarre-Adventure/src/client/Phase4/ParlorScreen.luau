@@ -58,6 +58,8 @@ function ParlorScreen.open(parent: Instance, deps: StationShell.Deps): Parlor
 		balances = function(balances: Contract.Balances): string
 			return `{balances.salvageShards} SHARD`
 		end,
+		-- A recovered spin reveals its original prizes here.
+		recovers = { Spun = true },
 	})
 	local body = shell.body
 
@@ -117,7 +119,7 @@ function ParlorScreen.open(parent: Instance, deps: StationShell.Deps): Parlor
 
 	local selected: TierId = TIER_ORDER[1]
 	-- The latest batch, revealed `revealed` results at a time.
-	local batch: { tierId: TierId, spentYen: number, results: { Contract.SpinResult } }? = nil
+	local batch: { tierId: TierId, spentYen: number, results: { Contract.SpinResult }, recovered: boolean }? = nil
 	local revealed = 0
 	local revealing = false
 	-- Snapshot used to name won gear, captured with the batch.
@@ -165,7 +167,7 @@ function ParlorScreen.open(parent: Instance, deps: StationShell.Deps): Parlor
 		end
 		if shown then
 			local tierName = TIER_BUTTON[shown.tierId] or ""
-			resultTitle.Text = `RESULTS  {tierName}`
+			resultTitle.Text = if shown.recovered then `RECOVERED  {tierName}` else `RESULTS  {tierName}`
 			if revealed >= #shown.results then
 				local refund = Format.refundTotal(shown.results)
 				resultSummary.Text = if refund > 0 then `-{shown.spentYen}Y  DUPES +{refund} SHARD` else `-{shown.spentYen}Y`
@@ -184,6 +186,8 @@ function ParlorScreen.open(parent: Instance, deps: StationShell.Deps): Parlor
 			return
 		end
 		local busy = shell.busy() or revealing
+		-- No new spin while an earlier action is unconfirmed: RETRY LAST ACTION first.
+		local waiting = shell.pending()
 		local tier = tierFor(snapshot, selected)
 		for id, button in tierButtons do
 			button.setState(if busy then (if id == selected then "Selected" else "Disabled")
@@ -208,9 +212,10 @@ function ParlorScreen.open(parent: Instance, deps: StationShell.Deps): Parlor
 		pityHint.TextColor3 = if left <= 1 then Palette.Gold else Colors.TextDim
 
 		local ten = tenLegality(snapshot, tier)
-		spinOne.setState(if busy or not tier.legality.canUse then "Disabled" else "Primary")
-		spinTen.setState(if busy or not ten.canUse then "Disabled" else "Primary")
-		spinHint.Text = if not tier.legality.canUse then string.upper(CampaignUi.reason(tier.legality))
+		spinOne.setState(if busy or waiting or not tier.legality.canUse then "Disabled" else "Primary")
+		spinTen.setState(if busy or waiting or not ten.canUse then "Disabled" else "Primary")
+		spinHint.Text = if waiting then "RETRY YOUR LAST ACTION FIRST."
+			elseif not tier.legality.canUse then string.upper(CampaignUi.reason(tier.legality))
 			elseif not ten.canUse then string.upper(CampaignUi.reason(ten))
 			else ""
 
@@ -247,11 +252,14 @@ function ParlorScreen.open(parent: Instance, deps: StationShell.Deps): Parlor
 	shell.setRender(render)
 
 	-- Reveals a committed batch one result at a time, in receipt order.
-	local function reveal(receipt: Contract.Receipt)
+	local function reveal(receipt: Contract.Receipt, recovered: boolean?)
 		if receipt.kind ~= "Spun" then
 			return
 		end
-		batch = { tierId = receipt.tierId, spentYen = receipt.spentYen, results = receipt.results }
+		batch = {
+			tierId = receipt.tierId, spentYen = receipt.spentYen, results = receipt.results,
+			recovered = recovered == true,
+		}
 		batchSnapshot = shell.client:snapshot()
 		selected = receipt.tierId
 		revealed = 0
@@ -277,6 +285,11 @@ function ParlorScreen.open(parent: Instance, deps: StationShell.Deps): Parlor
 		if shell.busy() or revealing or not snapshot then
 			return
 		end
+		if shell.pending() then
+			-- The shell retries the unconfirmed action instead of spinning.
+			shell.run({ kind = "Spin", tierId = selected, count = count })
+			return
+		end
 		local tier = tierFor(snapshot, selected)
 		if not tier then
 			return
@@ -299,6 +312,10 @@ function ParlorScreen.open(parent: Instance, deps: StationShell.Deps): Parlor
 			end
 		end)
 	end
+
+	shell.setRecovered(function(receipt: Contract.Receipt)
+		reveal(receipt, true)
+	end)
 
 	for id, button in tierButtons do
 		button.button.Activated:Connect(function()

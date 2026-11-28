@@ -21,6 +21,7 @@ local CampaignUi = require(script.Parent.Parent.Campaign.CampaignUi)
 local Phase4Client = require(script.Parent.Phase4Client)
 local Format = require(script.Parent.BlacksmithFormat)
 local StationFormat = require(script.Parent.StationFormat)
+local PendingControl = require(script.Parent.PendingControl)
 
 type Snapshot = Contract.Snapshot
 type ItemView = Contract.SmithItemView
@@ -66,6 +67,12 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 	PixelUi.label(bar, "Title", 4, 2, 70, 10, "BLACKSMITH", Palette.Gold)
 	local balanceLabel = PixelUi.label(bar, "Balances", 76, 2, 184, 10, "", Colors.TextDim, Enum.TextXAlignment.Right)
 	local yenLabel = PixelUi.label(bar, "Yen", 262, 2, 54, 10, "", Palette.Yen, Enum.TextXAlignment.Right)
+	-- RETRY LAST ACTION, over the balances while the shared client keeps an
+	-- unconfirmed action from any station.
+	local retryLast: () -> () = function() end
+	local pendingControl = PendingControl.attach(bar, client, function()
+		retryLast()
+	end)
 
 	-- Gear list.
 	PixelUi.label(frame, "ListTitle", 2, 16, 60, 9, "GEAR", Palette.Gold)
@@ -231,7 +238,7 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 	end
 
 	local function legalButton(button: CampaignUi.Button, legality: Legality, primary: boolean?)
-		if busy or not legality.canUse then
+		if busy or client:pendingAction() or not legality.canUse then
 			button.setState("Disabled")
 		else
 			button.setState(if primary then "Primary" else "Normal")
@@ -239,8 +246,42 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 	end
 
 	-- Runs one action and shows the committed receipt or the server's reason.
+	-- RETRY LAST ACTION: sends the kept request with its original ID and action.
+	local function retryPending()
+		if busy or not alive or not client:pendingAction() then
+			return
+		end
+		busy = true
+		setStatus("RETRYING LAST ACTION...", Colors.TextDim)
+		render()
+		local result = client:retryPending()
+		if not alive then
+			return
+		end
+		busy = false
+		if client:snapshot() and (result.ok or not result.uncertain) then
+			loaded = true
+			loadError = nil
+		end
+		local text, color = pendingControl.describe(result)
+		setStatus(text, color)
+		deps.toast(if result.ok then text else (result.message or text))
+		local snapshot = client:snapshot()
+		if snapshot then
+			settleSelection(snapshot)
+		end
+		render()
+	end
+	retryLast = retryPending
+
 	local function run(action: Contract.Action, label: string?)
 		if busy then
+			return
+		end
+		if client:pendingAction() then
+			-- Finish the unconfirmed action before sending a new one.
+			deps.toast("Finishing your last action first.")
+			retryPending()
 			return
 		end
 		busy = true
@@ -269,7 +310,10 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 			confirmDismantle = nil
 		else
 			local message = result.message or "The Blacksmith couldn't do that."
-			if result.resolvedPending then
+			local kept = client:pendingAction()
+			if result.uncertain and kept then
+				message = PendingControl.waitingText(StationFormat.action(kept))
+			elseif result.resolvedPending then
 				message = "Last action not applied: " .. message
 			end
 			if result.code == "StaleRevision" then
@@ -301,6 +345,10 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 		local snapshot = client:snapshot()
 		if snapshot and result.ok then
 			settleSelection(snapshot)
+		end
+		local kept = client:pendingAction()
+		if result.ok and kept then
+			setStatus(PendingControl.waitingText(StationFormat.action(kept)), Colors.Hp)
 		end
 		render()
 	end
@@ -436,6 +484,7 @@ function BlacksmithScreen.open(parent: Instance, deps: Deps): Blacksmith
 		tipOutline.Visible = false
 		back.setState(if busy then "Disabled" else "Normal")
 		local snapshot = client:snapshot()
+		balanceLabel.Visible = pendingControl.render(busy) == nil
 		if snapshot then
 			yenLabel.Text = `{snapshot.balances.yen} YEN`
 			balanceLabel.Text = Format.balances(snapshot.balances)

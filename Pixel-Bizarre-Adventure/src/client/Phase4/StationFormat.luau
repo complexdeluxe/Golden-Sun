@@ -167,6 +167,34 @@ function StationFormat.refundTotal(results: { Contract.SpinResult }): number
 	return total
 end
 
+local TIER_LABEL: { [string]: string } = { standard_chip = "STANDARD", high_roller_chip = "HIGH-ROLLER" }
+
+-- A short name for an action the player sent, for example while its reply is
+-- unconfirmed: "1 SPIN STANDARD", "REMOVE HEAD OPTICS".
+function StationFormat.action(action: Contract.Action): string
+	if action.kind == "Spin" then
+		local tier = TIER_LABEL[action.tierId] or StationFormat.idText(action.tierId)
+		return `{action.count} SPIN{if action.count == 1 then "" else "S"} {tier}`
+	elseif action.kind == "InstallCyberware" then
+		return `INSTALL T{action.tier} {StationFormat.site(action.site)}`
+	elseif action.kind == "RemoveCyberware" then
+		return `REMOVE {StationFormat.site(action.site)}`
+	elseif action.kind == "SetEquippedRoutines" then
+		return "EQUIP ROUTINES"
+	elseif action.kind == "CreateOffer" then
+		return "REROLL"
+	elseif action.kind == "ResolveOffer" then
+		return if action.decision == "AcceptNew" then "ACCEPT NEW ROLL" else "KEEP OLD ROLL"
+	elseif action.kind == "Temper" then
+		return "TEMPER"
+	elseif action.kind == "Purify" then
+		return "PURIFY"
+	elseif action.kind == "Dismantle" then
+		return "SALVAGE"
+	end
+	return "LAST ACTION"
+end
+
 -- A short line for any receipt the server committed.
 function StationFormat.receipt(receipt: Contract.Receipt, label: string?): string
 	if receipt.kind == "CyberwareInstalled" then
