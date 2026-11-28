@@ -12,12 +12,17 @@
 -- (tinted with the saved hair colour) and the optional accent (untinted, e.g.
 -- HairCapTrim). A missing or unset hair/accent layer is skipped; an unset body
 -- falls back to the single sprite or the silhouette above.
+--
+-- A fighter with a horizontal sheet (see SpriteSheet) plays it instead of its
+-- static idle: idle loops, and FighterSprite.play runs guard, hit or an
+-- attack once before returning to idle. Without a sheet, play does nothing.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local AssetManifest = require(ReplicatedStorage.Shared.Contracts.AssetManifest)
 local AppearanceTypes = require(ReplicatedStorage.Shared.Contracts.CharacterAppearanceTypes)
 local PixelUi = require(script.Parent.PixelUi)
 local AppearanceArt = require(script.Parent.AppearanceArt)
+local SpriteSheet = require(script.Parent.SpriteSheet)
 
 export type Palette = { skin: Color3, top: Color3, legs: Color3, hair: Color3 }
 
@@ -67,6 +72,9 @@ local FALLBACK: Palette = {
 }
 
 local FighterSprite = {}
+
+-- Sheet players by canvas, so a destroyed canvas lets its player go.
+local players: { [Frame]: SpriteSheet.Player } = setmetatable({}, { __mode = "k" }) :: any
 
 -- The manifest image for `key`, or nil while it is missing or still unset.
 local function assetFor(key: AssetManifest.AssetKey?): string?
@@ -151,6 +159,7 @@ function FighterSprite.create(
 	local canvas = PixelUi.frame(parent, "Sprite", 0, 0, CANVAS, CANVAS)
 	local bodyId = if sprites then assetFor(sprites.bodySpriteKey) else nil
 	local assetId = assetFor(spriteKey)
+	local sheet = if bodyId then nil else SpriteSheet.forKey(spriteKey)
 	if sprites and bodyId then
 		layer(canvas, "Body", bodyId, facingLeft, 1)
 		local hairId = assetFor(sprites.overlaySpriteKey)
@@ -162,6 +171,13 @@ function FighterSprite.create(
 		if accentId then
 			layer(canvas, "Accent", accentId, facingLeft, 3)
 		end
+	elseif sheet then
+		local image = PixelUi.image(canvas, "Sheet", 0, 0, CANVAS, CANVAS, sheet.assetId)
+		image.ZIndex = 1
+		players[canvas] = SpriteSheet.player(image, sheet, facingLeft)
+		canvas.Destroying:Once(function()
+			players[canvas] = nil
+		end)
 	elseif assetId then
 		layer(canvas, "Image", assetId, facingLeft, 1)
 	else
@@ -179,6 +195,23 @@ function FighterSprite.create(
 		end
 	end
 	return canvas
+end
+
+-- Plays a one-shot (or idle) on a fighter drawn from a sheet.
+function FighterSprite.play(canvas: Frame, clip: SpriteSheet.Clip)
+	local player = players[canvas]
+	if player then
+		player:play(clip)
+	end
+end
+
+-- The clip and frame a sheet fighter is showing, or nil for static art.
+function FighterSprite.current(canvas: Frame): (SpriteSheet.Clip?, number?)
+	local player = players[canvas]
+	if player then
+		return player:current()
+	end
+	return nil, nil
 end
 
 FighterSprite.CANVAS = CANVAS

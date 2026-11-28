@@ -35,6 +35,7 @@ local Phase4Connection = require(script.Parent.Parent.Phase4.Phase4Connection)
 local ActionClient = require(script.Parent.Parent.Net.ActionClient)
 local LineageConnection = require(script.Parent.Parent.Lineage.LineageConnection)
 local ActivityConnection = require(script.Parent.Parent.Activities.ActivityConnection)
+local Audio = require(script.Parent.Parent.Audio.Audio)
 
 type Snapshot = HubTypes.CampaignSnapshot
 type Response = RemoteContract.CampaignResponse
@@ -237,8 +238,21 @@ function CampaignController.run(playerGui: Instance)
 		return true
 	end
 
+	-- One track per scene. Asking again for the same track keeps it playing.
+	local function playMusicFor(current: Snapshot)
+		local scene = current.scene
+		if scene.kind == "ActEncounter" then
+			Audio.music(if scene.encounter.nodeId == "Castle" then "Boss" else "Battle")
+		elseif scene.kind == "Tutorial" or scene.kind == "OriginSelect" then
+			Audio.music("Battle")
+		else
+			Audio.music("Hub")
+		end
+	end
+
 	function show(current: Snapshot)
 		local kind = current.scene.kind :: SceneKind
+		playMusicFor(current)
 		if kind == "ActEncounter" and not connection.isMock then
 			if openBattle(current) then
 				loading.Visible = false

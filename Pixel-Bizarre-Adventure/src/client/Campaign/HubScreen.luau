@@ -790,7 +790,7 @@ function HubScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 		local character = current.character
 		local extra = if current.companion.state == "Recruited" then `+ {string.upper(current.companion.label)}` else nil
 		topBar.set("PUBLIC HUB", character.level, character.yen, extra)
-		preview.set(character.appearance, nil)
+		preview.set(character.appearance, nil, character.appearanceSprites)
 		originLabel.Text = if character.origin then OriginSelect.displayName(character.origin) else ""
 		-- Forget a selection whose item is gone.
 		local sel = selection
