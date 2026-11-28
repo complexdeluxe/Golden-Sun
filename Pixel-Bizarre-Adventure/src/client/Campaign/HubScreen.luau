@@ -2,8 +2,7 @@
 -- The single Public Hub. Shop (restock and gear), Bag (inventory, gear and
 -- belt loadout), Party (recruit when offered), the three Phase 4 stations
 -- (Blacksmith, Cyberware Clinic and D'Arby's Parlor, each drawn over the Hub,
--- see Phase4/), and Set Out to the Act Map. Later stations stay hidden until
--- their phase.
+-- see Phase4/), the Hall of Ancestors (Lineage/), and Set Out to the Act Map.
 --
 -- Layout (native px):
 --   top bar       0..14    title, level, Yen
@@ -22,6 +21,7 @@ local Screen = require(script.Parent.Screen)
 local BlacksmithScreen = require(script.Parent.Parent.Phase4.BlacksmithScreen)
 local ClinicScreen = require(script.Parent.Parent.Phase4.ClinicScreen)
 local ParlorScreen = require(script.Parent.Parent.Phase4.ParlorScreen)
+local HallScreen = require(script.Parent.Parent.Lineage.HallScreen)
 
 type Snapshot = HubTypes.CampaignSnapshot
 type ShopOffer = HubTypes.ShopOffer
@@ -53,21 +53,23 @@ function HubScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 	local topBar = CampaignUi.topBar(frame)
 
 	-- Left column.
-	local stage = PixelUi.box(frame, "Stage", 2, 16, 98, 90, Palette.PurpleDark)
-	PixelUi.frame(stage, "Floor", 1, 76, 96, 13, Colors.Floor)
-	local preview = CampaignUi.preview(stage, "Preview", 0, -12)
-	local originLabel = PixelUi.label(frame, "Origin", 2, 107, 98, 9, "", Colors.TextDim, Enum.TextXAlignment.Center)
+	local stage = PixelUi.box(frame, "Stage", 2, 16, 98, 78, Palette.PurpleDark)
+	PixelUi.frame(stage, "Floor", 1, 64, 96, 13, Colors.Floor)
+	local preview = CampaignUi.preview(stage, "Preview", 0, -24)
+	local originLabel = PixelUi.label(frame, "Origin", 2, 95, 98, 9, "", Colors.TextDim, Enum.TextXAlignment.Center)
 	local stationButtons: { [Station]: CampaignUi.Button } = {
-		Shop = CampaignUi.button(frame, "ShopTab", 4, 117, 46, 11, "SHOP"),
-		Bag = CampaignUi.button(frame, "BagTab", 52, 117, 46, 11, "BAG"),
-		Party = CampaignUi.button(frame, "PartyTab", 4, 129, 94, 11, "PARTY"),
+		Shop = CampaignUi.button(frame, "ShopTab", 4, 105, 46, 11, "SHOP"),
+		Bag = CampaignUi.button(frame, "BagTab", 52, 105, 46, 11, "BAG"),
+		Party = CampaignUi.button(frame, "PartyTab", 4, 117, 94, 11, "PARTY"),
 	}
 	-- Phase 4 stations open over the Hub.
 	local phase4Buttons: { [Phase4Station]: CampaignUi.Button } = {
-		Smith = CampaignUi.button(frame, "SmithTab", 4, 141, 46, 11, "SMITH"),
-		Clinic = CampaignUi.button(frame, "ClinicTab", 52, 141, 46, 11, "CLINIC"),
-		Parlor = CampaignUi.button(frame, "ParlorTab", 4, 153, 94, 11, "D'ARBY'S PARLOR"),
+		Smith = CampaignUi.button(frame, "SmithTab", 4, 129, 46, 11, "SMITH"),
+		Clinic = CampaignUi.button(frame, "ClinicTab", 52, 129, 46, 11, "CLINIC"),
+		Parlor = CampaignUi.button(frame, "ParlorTab", 4, 141, 94, 11, "D'ARBY'S PARLOR"),
 	}
+	-- The Hall of Ancestors (Lineage) also opens over the Hub.
+	local hallButton = CampaignUi.button(frame, "HallTab", 4, 153, 94, 11, "HALL OF ANCESTORS")
 	local PHASE4_NAME: { [Phase4Station]: string } = {
 		Smith = "The Blacksmith",
 		Clinic = "The Clinic",
@@ -691,6 +693,44 @@ function HubScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 		end)
 	end
 
+	local function openHall()
+		if busy or overlay or openingStation then
+			return
+		end
+		if actions.isMock then
+			actions.toast("The Hall of Ancestors needs the game server.")
+			return
+		end
+		openingStation = true
+		rerender()
+		local client = actions.lineage()
+		openingStation = false
+		if not frame.Parent then
+			return
+		end
+		rerender()
+		if not client then
+			actions.toast("The Hall of Ancestors is closed. Try again soon.")
+			return
+		end
+		overlay = HallScreen.open(frame, {
+			client = client,
+			toast = actions.toast,
+			onClose = function()
+				overlay = nil
+				rerender()
+				-- Pass the Torch resets the campaign, and Echo bonuses can change it.
+				actions.refreshCampaign()
+			end,
+			onLifeChanged = function()
+				actions.refreshCampaign()
+			end,
+		})
+	end
+	hallButton.button.Activated:Connect(function()
+		openHall()
+	end)
+
 	setOut.button.Activated:Connect(function()
 		local hub = hubPayload()
 		if busy or not hub then
@@ -727,6 +767,7 @@ function HubScreen.new(root: Frame, actions: Screen.Actions): Screen.Screen
 		for _, button in phase4Buttons do
 			button.setState(if busy or openingStation or actions.isMock then "Disabled" else "Normal")
 		end
+		hallButton.setState(if busy or openingStation or actions.isMock then "Disabled" else "Normal")
 	end
 
 	function self.setBusy(_self: Screen.Screen, value: boolean)

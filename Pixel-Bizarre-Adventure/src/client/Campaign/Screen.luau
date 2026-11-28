@@ -6,6 +6,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HubTypes = require(ReplicatedStorage.Shared.Contracts.HubTypes)
 local Phase4Client = require(script.Parent.Parent.Phase4.Phase4Client)
+local ActionClient = require(script.Parent.Parent.Net.ActionClient)
 
 export type Actions = {
 	-- The action fields without sessionId / expectedRevision, for example
@@ -18,6 +19,9 @@ export type Actions = {
 	-- The Phase 4 economy client for the Hub stations. Yields while the remotes
 	-- are found the first time. Nil without the game server (offline mock).
 	phase4: () -> Phase4Client.Client?,
+	-- The lineage client for the Hall of Ancestors and the Castle final-attempt
+	-- check. Same caching and nil rules as phase4.
+	lineage: () -> ActionClient.Client?,
 	-- Fetch the Campaign snapshot again, for example after leaving a station
 	-- that spent Yen.
 	refreshCampaign: () -> (),
